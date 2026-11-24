@@ -8,14 +8,11 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/hungnm98/heimdall-cve/internal/app"
 	"github.com/hungnm98/heimdall-cve/internal/config"
-	"github.com/hungnm98/heimdall-cve/internal/jobs"
 	"github.com/hungnm98/heimdall-cve/internal/secret"
 	"github.com/hungnm98/heimdall-cve/internal/service"
-	"github.com/hungnm98/heimdall-cve/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -44,32 +41,12 @@ func newWorkerCmd(g *globalFlags) *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			cat, ok := a.Store.(store.Catalog)
-			if !ok {
-				return fmt.Errorf("store %s does not support the web app catalog", cfg.Store.Type)
-			}
-			f, err := jobs.Registry.Get(cfg.Jobs.Type)
-			if err != nil {
-				return fmt.Errorf("jobs: %w", err)
-			}
-			backend, err := f(cfg.Jobs.Options, a.Deps)
-			if err != nil {
-				return fmt.Errorf("jobs: %w", err)
-			}
-			defer backend.Close()
-			keys, err := loadKeyRing(cfg, logger)
+			rt, err := a.NewWebRuntime(cmd.Context())
 			if err != nil {
 				return err
 			}
-			secrets := secret.Chain{}
-			if keys != nil {
-				secrets.Store = service.NewSecretResolver(cat, keys)
-			}
-			deps := service.Deps{
-				Config: cfg, Store: a.Store, Catalog: cat, Jobs: backend,
-				Scanner: nil, // core.Scanner is wired in Phase 2: jobs fail with "scanner not wired yet"
-				Keys:    keys, Secrets: secrets, Logger: logger, Now: time.Now,
-			}
+			backend, deps := rt.Jobs, rt.Deps
+			defer backend.Close()
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()

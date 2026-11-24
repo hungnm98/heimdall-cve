@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/hungnm98/heimdall-cve/internal/auth"
 	"github.com/hungnm98/heimdall-cve/internal/jobs"
@@ -81,14 +82,19 @@ func (a *App) SourceKinds() map[string][]string {
 // config ones alike). Secrets referenced by "<kind>_ref" options resolve
 // through a.Deps.Secrets.
 func (a *App) CatalogProviderFor(cat store.Catalog) func(ctx context.Context, t model.Target) (vcs.Provider, error) {
-	creds := func(ctx context.Context, name string) (auth.Credentials, error) {
+	var mu sync.Mutex
+	cache := map[string]vcs.Provider{}
+	profile := func(ctx context.Context, name string) (*model.AuthProfile, error) {
 		p, err := cat.GetAuthProfile(ctx, name)
 		if err != nil {
 			return nil, fmt.Errorf("auth profile %q: %w", name, err)
 		}
+		return p, nil
+	}
+	creds := func(p *model.AuthProfile) (auth.Credentials, error) {
 		c, err := build(auth.Registry, p.Type, plugin.Config(p.Options), a.Deps)
 		if err != nil {
-			return nil, fmt.Errorf("auth profile %q: %w", name, err)
+			return nil, fmt.Errorf("auth profile %q: %w", p.Name, err)
 		}
 		return c, nil
 	}
@@ -97,17 +103,37 @@ func (a *App) CatalogProviderFor(cat store.Catalog) func(ctx context.Context, t 
 		if provider == "" {
 			provider = "github"
 		}
+		listName := t.ListAuth
+		if listName == "" {
+			listName = t.Auth
+		}
+		read, err := profile(ctx, t.Auth)
+		if err != nil {
+			return nil, err
+		}
+		list, err := profile(ctx, listName)
+		if err != nil {
+			return nil, err
+		}
+		// Reuse a provider (and the tokens its credentials cache) until a
+		// profile changes; UpdatedAt moves on every edit or secret change.
+		key := fmt.Sprintf("%s|%s|%s@%d|%s@%d", provider, t.BaseURL, read.Name, read.UpdatedAt.UnixNano(), list.Name, list.UpdatedAt.UnixNano())
+		mu.Lock()
+		defer mu.Unlock()
+		if p, ok := cache[key]; ok {
+			return p, nil
+		}
 		f, err := vcs.Registry.Get(provider)
 		if err != nil {
 			return nil, err
 		}
-		read, err := creds(ctx, t.Auth)
+		rc, err := creds(read)
 		if err != nil {
 			return nil, err
 		}
-		list := read
-		if t.ListAuth != "" && t.ListAuth != t.Auth {
-			if list, err = creds(ctx, t.ListAuth); err != nil {
+		lc := rc
+		if list.Name != read.Name {
+			if lc, err = creds(list); err != nil {
 				return nil, err
 			}
 		}
@@ -115,6 +141,11 @@ func (a *App) CatalogProviderFor(cat store.Catalog) func(ctx context.Context, t 
 		if t.BaseURL != "" {
 			opts["base_url"] = t.BaseURL
 		}
-		return f(opts, vcs.Credentials{Read: read, List: list}, a.Deps)
+		p, err := f(opts, vcs.Credentials{Read: rc, List: lc}, a.Deps)
+		if err != nil {
+			return nil, err
+		}
+		cache[key] = p
+		return p, nil
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/hungnm98/heimdall-cve/internal/auth"
 	"github.com/hungnm98/heimdall-cve/internal/config"
 	"github.com/hungnm98/heimdall-cve/internal/service"
-	"github.com/hungnm98/heimdall-cve/internal/store"
 	"github.com/hungnm98/heimdall-cve/internal/vcs"
 	"github.com/hungnm98/heimdall-cve/internal/webui"
 	"github.com/spf13/cobra"
@@ -25,6 +25,7 @@ import (
 
 func newServeCmd(g *globalFlags) *cobra.Command {
 	var listen string
+	var apiOnly bool
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the web UI and REST API",
@@ -48,46 +49,31 @@ func newServeCmd(g *globalFlags) *cobra.Command {
 				return err
 			}
 			defer a.Close()
-			return serve(cmd.Context(), a, nil)
+			return serveWith(cmd.Context(), a, nil, !apiOnly)
 		},
 	}
 	cmd.Flags().StringVar(&listen, "listen", "", "listen address (default server.listen, 127.0.0.1:8080)")
+	cmd.Flags().BoolVar(&apiOnly, "api-only", false, "serve the UI and API only; scan jobs are run by `heimdall worker` processes")
 	return cmd
 }
 
 // serve runs the HTTP server until ctx is canceled or SIGINT/SIGTERM.
 // onListen, if set, receives the bound address (tests listen on port 0).
 func serve(ctx context.Context, a *app.App, onListen func(net.Addr)) error {
+	return serveWith(ctx, a, onListen, true)
+}
+
+// serveWith runs the HTTP server and, when workers is true, the job worker
+// pool and the scheduler in the same process (required for jobs.type inline).
+func serveWith(ctx context.Context, a *app.App, onListen func(net.Addr), workers bool) error {
 	cfg, logger := a.Config, a.Logger
-	cat, ok := a.Store.(store.Catalog)
-	if !ok {
-		return fmt.Errorf("store %q does not implement the catalog needed by serve (targets, jobs, audit); use a store that does (memory now, postgres once its catalog lands)", cfg.Store.Type)
-	}
-	keys, err := a.MasterKeys()
-	if err != nil {
-		return fmt.Errorf("master key: %w", err)
-	}
-	if keys == nil {
-		logger.Warn("no master key configured: secrets cannot be entered in the UI", "env", cfg.Secrets.MasterKeyEnv, "file", cfg.Secrets.MasterKeyFile)
-	}
-	backend, err := a.NewJobs()
+	rt, err := a.NewWebRuntime(ctx)
 	if err != nil {
 		return err
 	}
+	backend, deps := rt.Jobs, rt.Deps
 	defer backend.Close()
-
-	deps := service.Deps{
-		Config: cfg, Store: a.Store, Catalog: cat, Jobs: backend,
-		Scanner:     nil, // the scan pipeline and job worker arrive in Phase 2
-		Keys:        keys,
-		Secrets:     a.Deps.Secrets,
-		ProviderFor: a.CatalogProviderFor(cat),
-		Notifiers:   a.Notifiers, SourceKinds: a.SourceKinds(),
-		Logger: logger, Now: time.Now,
-	}
-	if err := service.SyncConfig(ctx, deps); err != nil {
-		logger.Warn("config sync incomplete", "err", err)
-	}
+	keys := deps.Keys
 	svcs := service.New(deps)
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -128,6 +114,28 @@ func serve(ctx context.Context, a *app.App, onListen func(net.Addr)) error {
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
+
+	// Job workers and the scheduler stop with the server.
+	wctx, stopWorkers := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	if workers {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if err := backend.Run(wctx, service.NewJobHandler(deps)); err != nil {
+				logger.Error("job workers stopped", "err", err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if err := service.NewScheduler(deps).Run(wctx); err != nil && wctx.Err() == nil {
+				logger.Error("scheduler stopped", "err", err)
+			}
+		}()
+	} else if backend.Name() == "inline" {
+		logger.Warn("--api-only with jobs.type inline: queued jobs will never run")
+	}
+	defer func() { stopWorkers(); wg.Wait() }()
 	select {
 	case err := <-errc:
 		return err

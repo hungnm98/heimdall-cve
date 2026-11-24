@@ -52,6 +52,7 @@ type Workspace struct {
 type Server struct {
 	Listen            string `mapstructure:"listen"`
 	TrustedUserHeader string `mapstructure:"trusted_user_header"` // e.g. X-Forwarded-Email, set by an SSO proxy; used for audit
+	PublicURL         string `mapstructure:"public_url"`          // e.g. https://heimdall.internal, for links in notifications
 }
 
 // SecretsConfig locates the master key (KEK) that encrypts secrets entered in the UI.
