@@ -41,7 +41,7 @@ func TestLoadYAML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Cache.TTL != 24*time.Hour || c.Store.Type != "postgres" || len(c.Ecosystems) != 1 {
+	if c.Cache.TTL != 24*time.Hour || c.Store.Type != "postgres" || len(c.Ecosystems) != 0 { // empty = all compiled in
 		t.Fatalf("defaults not applied: %+v", c)
 	}
 	if c.Sources["endoflife"].IsEnabled() || c.Sources["endoflife"].Options["eol_warning_days"] == nil {

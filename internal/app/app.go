@@ -101,7 +101,13 @@ func New(cfg *config.Config, logger *slog.Logger) (*App, error) {
 
 	ecoOpts := ecosystem.Options{PrivatePatterns: cfg.PrivateModules}
 	wantRuntime := map[string]bool{}
-	for _, name := range cfg.Ecosystems {
+	ecoNames := cfg.Ecosystems
+	if len(ecoNames) == 0 {
+		// Default: scan every ecosystem compiled in, so a repo holding Go,
+		// Node.js and Ruby projects is scanned for all three in one pass.
+		ecoNames = ecosystem.Registry.Names()
+	}
+	for _, name := range ecoNames {
 		f, err := ecosystem.Registry.Get(name)
 		if err != nil {
 			collect("ecosystems", err)

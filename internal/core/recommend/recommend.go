@@ -210,6 +210,14 @@ func upgradeAdvice(p model.Package, ver string, direct bool, parents []string) s
 		return fmt.Sprintf("build with Go %s or later (go get toolchain@go%s)", ver, ver)
 	case p.Ecosystem == model.EcosystemGo:
 		cmd = fmt.Sprintf("go get %s@%s", p.Name, ver)
+	case p.Ecosystem == model.EcosystemNPM && direct:
+		cmd = fmt.Sprintf("npm install %s@%s (yarn add / pnpm add)", p.Name, ver)
+	case p.Ecosystem == model.EcosystemNPM:
+		cmd = fmt.Sprintf(`pin %s >= %s with "overrides" (npm), "resolutions" (yarn) or "pnpm.overrides"`, p.Name, ver)
+	case p.Ecosystem == model.EcosystemRubyGems && direct:
+		cmd = fmt.Sprintf("bundle update %s --conservative (allow >= %s in the Gemfile)", p.Name, ver)
+	case p.Ecosystem == model.EcosystemRubyGems:
+		cmd = fmt.Sprintf(`bundle update %s --conservative, or add gem "%s", ">= %s" to the Gemfile`, p.Name, p.Name, ver)
 	default:
 		cmd = fmt.Sprintf("upgrade %s to %s", p.Name, ver)
 	}

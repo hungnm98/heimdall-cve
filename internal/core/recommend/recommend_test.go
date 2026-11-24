@@ -141,7 +141,7 @@ func TestOtherEcosystemWithoutComparator(t *testing.T) {
 		AdvisoryID: "GHSA-p6mc-m468-83gw", FixedVersions: []string{"4.17.19"}}
 	fs := []model.Finding{f}
 	Apply(fs, cmps)
-	if fs[0].RecommendedVersion != "4.17.19" || fs[0].Advice != "upgrade lodash to 4.17.19" {
+	if fs[0].RecommendedVersion != "4.17.19" || fs[0].Advice != "npm install lodash@4.17.19 (yarn add / pnpm add)" {
 		t.Errorf("npm = %q %q", fs[0].RecommendedVersion, fs[0].Advice)
 	}
 }

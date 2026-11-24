@@ -24,7 +24,7 @@ import (
 type Config struct {
 	AuthProfiles   map[string]Plugin `mapstructure:"auth_profiles"`
 	Targets        []Target          `mapstructure:"targets"`
-	Ecosystems     []string          `mapstructure:"ecosystems"`
+	Ecosystems     []string          `mapstructure:"ecosystems"` // empty = every ecosystem compiled in (multi-language repos)
 	PrivateModules []string          `mapstructure:"private_modules"`
 	SkipPaths      []string          `mapstructure:"skip_paths"`
 	Sources        map[string]Plugin `mapstructure:"sources"`
@@ -135,7 +135,6 @@ type Concurrency struct {
 }
 
 func setDefaults(v *viper.Viper) {
-	v.SetDefault("ecosystems", []string{"go"})
 	v.SetDefault("skip_paths", []string{"node_modules/", "vendor/", "testdata/", ".git/", "examples/"})
 	v.SetDefault("report.formats", []string{"md", "json"})
 	v.SetDefault("report.dir", "reports")
@@ -230,9 +229,6 @@ func (c *Config) Validate() error {
 				bad("%s: bad glob %q", where, g)
 			}
 		}
-	}
-	if len(c.Ecosystems) == 0 {
-		bad("ecosystems: at least one is required")
 	}
 	for k := range c.Policy.SLADays {
 		if model.ParseSeverity(k) == model.SeverityUnknown {
