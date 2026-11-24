@@ -51,7 +51,14 @@ func New(d Deps) *Services {
 		d.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	b := &base{d: d}
+	var intel Intel
+	var messenger Messenger
+	if in, ok := d.Store.(store.Intel); ok {
+		intel, messenger = &intelSvc{base: b, st: in}, &messengerSvc{b}
+	}
 	return &Services{
+		Intel:        intel,
+		Messenger:    messenger,
 		Dashboard:    &dashboardSvc{b},
 		Targets:      &targetsSvc{b},
 		AuthProfiles: &authProfilesSvc{b},

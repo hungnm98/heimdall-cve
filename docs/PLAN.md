@@ -130,7 +130,7 @@ cmd/heimdall ──► internal/app (wiring) ──► internal/core (pipeline, 
 
 **Phase 2 — Integration (✅ xong):** `core.Pipeline` (implement `core.Scanner`) nối A–F; worker + scheduler chạy trong `serve` (hoặc `heimdall worker`); lệnh `scan` (exit code `--fail-on`) và `repos`; notify theo diff (idempotent); report ghi ra `report.dir`; secret store nối vào plugin; `Job.Force/BaseURL`; test e2e với plugin thật trên upstream giả. Còn lại: chạy thật read-only lên org remitano (cần token do Đại ca cấp), query đếm gom nhóm cho dashboard, field `Runtimes` cho notification, `UpdateJob` có điều kiện, retention cho `job_events`/`audit_log`, các spec gap UI ghi nhận.
 
-**Phase 3 — MCP + AI agent (1 agent):** xem §6.
+**Phase 3 — MCP + AI agent (✅ xong, trừ Postgres):** xem §6.
 
 Ước lượng: Phase 0 ✅ → Phase 0b ~1 ngày → Phase 1 song song ~3–4 ngày (E/F dài nhất) → Phase 2 ~1–2 ngày → Phase 3 ~1 ngày.
 
@@ -141,6 +141,14 @@ cmd/heimdall ──► internal/app (wiring) ──► internal/core (pipeline, 
 - Commit nhỏ, không có AI attribution trong commit/PR.
 
 ## 6. MCP: AI agent là một nguồn + notify
+
+**Trạng thái (Phase 3 ✅):** `internal/service` (Intel + Messenger), `internal/mcpserver` (Go SDK chính thức `modelcontextprotocol/go-sdk`, stdio + streamable HTTP tại `/mcp`), lệnh `heimdall mcp --transport stdio|http [--listen] [--allow-scan] [--allow-agent-writes] [--allow-notify]`, `prompts/*.md` (embed qua package `prompts` ở root, expose làm MCP prompt). Khác so với thiết kế bên dưới:
+- `submit_analysis` nhận `ecosystem` + `name` (+ `version`) thay vì `purl`.
+- Tool ghi khi bị tắt vẫn được liệt kê, gọi vào trả lỗi nêu rõ flag cần bật.
+- `scan_*` chỉ enqueue job; `serve`/`worker` mới chạy job (`mcp` không chạy worker).
+- Rate limit `notify_user` đếm bằng key `agent.message.count:<ngày UTC>:<n>` qua `Store.MarkNotified` (giữ qua nhiều process); tin trùng cũng tốn một slot; dedup đánh dấu trước khi gửi (gửi lỗi thì không gửi lại tin y hệt).
+- Resource: `heimdall://runs/latest` (JSON) và `heimdall://config` (redacted); không có `reports/latest.md` (mcpserver không được import adapter report).
+- Còn lại: **Postgres store chưa implement `store.Intel`** → với Postgres, inventory/queue/submit/notify trả "unavailable" (cần migration + contract kit `storetest.RunIntel`, kit này cũng chưa có dù `store.Intel` có nhắc tới).
 
 Ý tưởng: AI agent được coi như **một `VulnSource` tên `agent`**. Agent tự đi nghiên cứu lib (changelog, issue, advisory mới chưa vào OSV, dấu hiệu lib bị bỏ rơi/bị chiếm quyền), rồi ghi kết quả ngược vào Heimdall qua MCP. Kết quả đó đi qua **cùng pipeline dedup/store/notify** như OSV.
 
