@@ -1,0 +1,7 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    vendored-dep (1.0.0)
+
+DEPENDENCIES
+  vendored-dep
