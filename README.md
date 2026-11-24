@@ -48,6 +48,48 @@ bin/heimdall serve                                         # http://127.0.0.1:80
 
 Quick local try without Postgres/Valkey: set `store: { type: memory }` and `jobs: { type: inline }`.
 
+## MCP
+
+`heimdall mcp` lets AI agents (Claude Code, Claude Desktop, any MCP client) read scan
+results, research the libraries in use, feed findings back as an unverified `agent` source
+and notify the team. Claude Code / Claude Desktop config (`.mcp.json` or
+`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "heimdall": {
+      "command": "/path/to/bin/heimdall",
+      "args": ["mcp", "--transport", "stdio", "-c", "/path/to/heimdall.yaml"],
+      "env": { "HEIMDALL_PG_DSN": "postgres://..." }
+    }
+  }
+}
+```
+
+Or over HTTP: `bin/heimdall mcp --transport http` serves `http://127.0.0.1:8090/mcp`
+(`--listen` / `mcp.listen`; no authentication, keep it on loopback).
+
+- **Read tools**: `list_targets`, `list_repos`, `get_inventory`, `get_analysis_queue`,
+  `get_analyses`, `get_findings`, `get_finding`, `get_upgrade_plan`, `get_runtime_status`,
+  `list_runs`, `diff_scans`, `list_sources`, `get_scan_status`.
+- **Gated tools**, off by default, enabled by a flag or the config (flags only enable):
+  `scan_target` / `scan_repo` (`--allow-scan`, `mcp.allow_scan`; they queue jobs that
+  `heimdall serve` or `heimdall worker` executes, `mcp` runs no workers),
+  `submit_advisory` / `submit_analysis` (`--allow-agent-writes`, `mcp.allow_agent_writes`),
+  `notify_user` (`--allow-notify`, `mcp.allow_notify`; deduplicated, at most
+  `mcp.notify_daily_limit` messages per UTC day, default 20). Disabled tools stay listed and
+  answer with the flag that enables them.
+- Agent advisories use ids `HEIMDALL-AGENT-<year>-<n>` (public ids go in `aliases`), need
+  https evidence and a confidence, and are always stored unverified; they merge with the
+  public record once OSV publishes one sharing an alias.
+- Every tool call is written to the audit log as `mcp:<client name>`. No tool returns secrets.
+- Resources: `heimdall://runs/latest`, `heimdall://config` (redacted). Prompts: the routines
+  in [prompts/](prompts) (`daily-scan`, `analyze-library`, `refresh-intel`).
+- The inventory, analysis queue, agent writes and `notify_user` need a store implementing
+  agent intelligence (`store.Intel`): currently only `memory`; the Postgres store does not
+  implement it yet, so with Postgres these tools answer "unavailable".
+
 ## Docs
 
 - [docs/PLAN.md](docs/PLAN.md): MVP scope and delivery plan
