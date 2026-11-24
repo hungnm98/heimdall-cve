@@ -33,10 +33,11 @@ func TestConfigValidate(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// No github/token plugins are compiled in yet, so validation must fail
-	// with exit code 2 and name the missing plugins.
+	// The github/token plugins are compiled in, so they must not be reported
+	// missing; any plugin still missing makes validation fail with exit code 2.
 	code, _, stderr := run("config", "validate", "-c", cfg)
-	if code != ExitError || !strings.Contains(stderr, `auth "token"`) || !strings.Contains(stderr, `vcs "github"`) {
+	if strings.Contains(stderr, `auth "token"`) || strings.Contains(stderr, `vcs "github"`) ||
+		(code != ExitOK && (code != ExitError || !strings.Contains(stderr, "plugin not registered"))) {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
 	if code, _, stderr := run("config", "validate", "-c", filepath.Join(dir, "missing.yaml")); code != ExitError || stderr == "" {
