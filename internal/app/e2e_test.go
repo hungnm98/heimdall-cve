@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,7 +48,12 @@ func (g *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 3 && parts[0] == "orgs" && parts[2] == "repos":
 		var out []map[string]any
-		for _, name := range []string{"api", "web"} {
+		names := make([]string, 0, len(g.files))
+		for name := range g.files {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
 			out = append(out, map[string]any{
 				"name": name, "owner": map[string]string{"login": "acme"}, "default_branch": "main", "size": 10,
 				"html_url": "https://github.com/acme/" + name, "clone_url": "https://github.com/acme/" + name + ".git",
@@ -76,44 +82,82 @@ func (g *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// fakeOSV serves the recorded OSV records under source/osv/testdata/vulns:
+// querybatch returns every record naming the queried package (like OSV, but
+// without version filtering: the pipeline re-evaluates ranges itself).
 func fakeOSV(t *testing.T) http.Handler {
-	vuln, err := os.ReadFile("../source/osv/testdata/vulns/GO-2024-2611.json")
-	if err != nil {
-		t.Fatal(err)
+	t.Helper()
+	files, err := filepath.Glob("../source/osv/testdata/vulns/*.json")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("osv fixtures: %v", err)
+	}
+	type rec struct{ id, modified string }
+	byPkg := map[string][]rec{}
+	raw := map[string][]byte{}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v struct {
+			ID, Modified string
+			Withdrawn    string
+			Affected     []struct {
+				Package struct{ Ecosystem, Name string }
+			}
+		}
+		if err := json.Unmarshal(b, &v); err != nil {
+			t.Fatal(err)
+		}
+		raw[v.ID] = b
+		for _, a := range v.Affected {
+			k := a.Package.Ecosystem + "|" + a.Package.Name
+			byPkg[k] = append(byPkg[k], rec{v.ID, v.Modified})
+		}
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/querybatch", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Queries []struct {
-				Package struct{ Name string } `json:"package"`
-				Version string                `json:"version"`
+				Package struct{ Name, Ecosystem string } `json:"package"`
 			} `json:"queries"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		results := make([]map[string]any, len(req.Queries))
 		for i, q := range req.Queries {
 			results[i] = map[string]any{}
-			if q.Package.Name == "google.golang.org/protobuf" && q.Version < "1.33.0" {
-				results[i]["vulns"] = []map[string]string{{"id": "GO-2024-2611", "modified": "2024-06-04T16:37:09Z"}}
+			var vulns []map[string]string
+			for _, v := range byPkg[q.Package.Ecosystem+"|"+q.Package.Name] {
+				vulns = append(vulns, map[string]string{"id": v.id, "modified": v.modified})
+			}
+			if len(vulns) > 0 {
+				results[i]["vulns"] = vulns
 			}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"results": results})
 	})
-	mux.HandleFunc("GET /v1/vulns/GO-2024-2611", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(vuln) })
-	return mux
-}
-
-func fakeEndOfLife(t *testing.T) http.Handler {
-	goJSON, err := os.ReadFile("../source/endoflife/testdata/go.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/go.json" {
+	mux.HandleFunc("GET /v1/vulns/{id}", func(w http.ResponseWriter, r *http.Request) {
+		b, ok := raw[r.PathValue("id")]
+		if !ok {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write(goJSON)
+		_, _ = w.Write(b)
+	})
+	return mux
+}
+
+// fakeEndOfLife serves source/endoflife/testdata/<product>.json.
+func fakeEndOfLife(t *testing.T) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		product := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/"), ".json")
+		b, err := os.ReadFile(filepath.Join("../source/endoflife/testdata", filepath.Base(product)+".json"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(b)
 	})
 }
 
