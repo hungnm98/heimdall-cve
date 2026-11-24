@@ -1,0 +1,11 @@
+go 1.22.3
+
+toolchain go1.22.5
+
+use (
+	./services/api
+	./services/worker
+	./libs/shared
+)
+
+replace github.com/sirupsen/logrus => github.com/acme/logrus v1.9.4-acme.1
