@@ -39,6 +39,10 @@ that matter, and send the team **one** short digest.
    - Use `get_upgrade_plan(repo)` to see the per-repo upgrade.
    - Write a 2–3 line triage note: impact, recommended action, effort
      (patch/minor/major), with evidence URLs.
+   - If `get_finding` shows a fresh `agent_assessment`, reuse its decision
+     instead of re-researching. To record decisions so later runs skip them,
+     follow the `triage-findings` routine (`triage_queue`, then
+     `submit_assessment`, if agent writes are enabled).
 5. **Digest.** Call `notify_user` once with:
    - title: `Heimdall daily: <n> new critical/high, <k> KEV, <m> EOL`
    - severity: the worst severity in the digest

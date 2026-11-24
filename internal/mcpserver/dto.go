@@ -186,6 +186,63 @@ type findingOut struct {
 	FirstSeen          string      `json:"first_seen"`
 	Sources            []string    `json:"sources,omitempty"`
 	Runtime            *runtimeOut `json:"runtime,omitempty"`
+	// AgentAssessment is the latest agent triage that applies (unverified).
+	AgentAssessment *assessmentBriefOut `json:"agent_assessment,omitempty"`
+}
+
+type assessmentBriefOut struct {
+	ID         int64   `json:"id"`
+	Decision   string  `json:"decision"`
+	Score      float64 `json:"score"`
+	Confidence string  `json:"confidence"`
+	Repo       string  `json:"repo,omitempty"` // set when specific to the finding's repo
+	Fresh      bool    `json:"fresh"`          // false: the finding changed or the assessment is old
+	AssessedAt string  `json:"assessed_at"`
+}
+
+func toAssessmentBrief(st service.AssessmentStatus) *assessmentBriefOut {
+	a := st.Assessment
+	return &assessmentBriefOut{ID: a.ID, Decision: string(a.Decision), Score: a.Score, Confidence: string(a.Confidence), Repo: a.Repo,
+		Fresh: st.Fresh, AssessedAt: ts(a.AssessedAt)}
+}
+
+type assessmentOut struct {
+	ID         int64    `json:"id"`
+	AdvisoryID string   `json:"advisory_id"`
+	Package    pkgOut   `json:"package"`
+	Repo       string   `json:"repo,omitempty"` // empty = applies to every repo
+	Decision   string   `json:"decision"`
+	Score      float64  `json:"score"`
+	Rationale  string   `json:"rationale,omitempty"`
+	Evidence   []string `json:"evidence"`
+	Confidence string   `json:"confidence"`
+	AssessedBy string   `json:"assessed_by"`
+	AssessedAt string   `json:"assessed_at"`
+}
+
+func toAssessment(a model.FindingAssessment) assessmentOut {
+	return assessmentOut{
+		ID: a.ID, AdvisoryID: a.AdvisoryID, Package: pkgOut{Ecosystem: string(a.Ecosystem), Name: a.Package, Version: a.Version}, Repo: a.Repo,
+		Decision: string(a.Decision), Score: a.Score, Rationale: a.Rationale, Evidence: nonNil(a.Evidence), Confidence: string(a.Confidence),
+		AssessedBy: a.AssessedBy, AssessedAt: ts(a.AssessedAt),
+	}
+}
+
+type triageOut struct {
+	Finding        findingOut     `json:"finding"`
+	RepoCount      int            `json:"repo_count"`
+	Repos          []string       `json:"repos"` // first 10
+	Reason         string         `json:"reason"`
+	LastAssessment *assessmentOut `json:"last_assessment,omitempty"`
+}
+
+func toTriage(it service.TriageItem) triageOut {
+	out := triageOut{Finding: toFinding(it.Finding), RepoCount: len(it.Repos), Repos: it.Repos[:min(10, len(it.Repos))], Reason: it.Reason}
+	if it.LastAssessment != nil {
+		a := toAssessment(*it.LastAssessment)
+		out.LastAssessment = &a
+	}
+	return out
 }
 
 func toFinding(f model.Finding) findingOut {

@@ -20,6 +20,8 @@ type intel struct {
 	agentAdvs map[string]model.AgentAdvisory   // advisory id → record
 	analyses  []model.LibraryAnalysis          // append-only history
 	seq       int64
+	assessed  []model.FindingAssessment // append-only history
+	assessSeq int64
 }
 
 func (s *Store) ReplaceInventory(_ context.Context, repo string, items []model.InventoryItem, _ time.Time) error {
@@ -231,6 +233,81 @@ func (s *Store) AnalysisHistory(_ context.Context, eco model.Ecosystem, name str
 	for i := len(in.analyses) - 1; i >= 0; i-- {
 		if a := in.analyses[i]; a.Ecosystem == eco && a.Name == name {
 			out = append(out, cloneAnalysis(a))
+			if limit > 0 && len(out) == limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func cloneAssessment(a model.FindingAssessment) model.FindingAssessment {
+	a.Evidence = slices.Clone(a.Evidence)
+	return a
+}
+
+// appliesTo reports whether a applies to k: same advisory/package version
+// and repo-agnostic or for k's repo.
+func appliesTo(a model.FindingAssessment, k model.AssessmentKey) bool {
+	return a.AdvisoryID == k.AdvisoryID && a.Ecosystem == k.Ecosystem && a.Package == k.Package &&
+		a.Version == k.Version && (a.Repo == "" || a.Repo == k.Repo)
+}
+
+func (s *Store) SaveAssessment(_ context.Context, a *model.FindingAssessment) error {
+	in := &s.intel
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	in.assessSeq++
+	a.ID = in.assessSeq
+	in.assessed = append(in.assessed, cloneAssessment(*a))
+	return nil
+}
+
+func (s *Store) LatestAssessments(_ context.Context, keys []model.AssessmentKey) ([]model.FindingAssessment, error) {
+	in := &s.intel
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	want := make(map[model.AssessmentKey]bool, 2*len(keys)) // the keys and their repo-agnostic variants
+	for _, k := range keys {
+		want[k] = true
+		k.Repo = ""
+		want[k] = true
+	}
+	latest := map[model.AssessmentKey]model.FindingAssessment{}
+	for _, a := range in.assessed { // ascending ID: later wins
+		if want[a.Key()] {
+			latest[a.Key()] = a
+		}
+	}
+	out := make([]model.FindingAssessment, 0, len(latest))
+	for _, a := range latest {
+		out = append(out, cloneAssessment(a))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		switch {
+		case a.AdvisoryID != b.AdvisoryID:
+			return a.AdvisoryID < b.AdvisoryID
+		case a.Ecosystem != b.Ecosystem:
+			return a.Ecosystem < b.Ecosystem
+		case a.Package != b.Package:
+			return a.Package < b.Package
+		case a.Version != b.Version:
+			return a.Version < b.Version
+		}
+		return a.Repo < b.Repo
+	})
+	return out, nil
+}
+
+func (s *Store) AssessmentHistory(_ context.Context, k model.AssessmentKey, limit int) ([]model.FindingAssessment, error) {
+	in := &s.intel
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	var out []model.FindingAssessment
+	for i := len(in.assessed) - 1; i >= 0; i-- {
+		if a := in.assessed[i]; appliesTo(a, k) {
+			out = append(out, cloneAssessment(a))
 			if limit > 0 && len(out) == limit {
 				break
 			}

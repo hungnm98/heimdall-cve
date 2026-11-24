@@ -8,7 +8,8 @@ import (
 )
 
 // Intel is an optional store capability for the AI-agent workflow: the
-// dependency inventory, agent-submitted advisories and library analyses.
+// dependency inventory, agent-submitted advisories, library analyses and
+// finding assessments.
 // Detect it with a type assertion. Behaviour is pinned by storetest.RunIntel.
 type Intel interface {
 	// ReplaceInventory replaces everything recorded for repo by items
@@ -33,6 +34,17 @@ type Intel interface {
 	LatestAnalyses(ctx context.Context, f AnalysisFilter) ([]model.LibraryAnalysis, error)
 	// AnalysisHistory returns every analysis of one library, newest first.
 	AnalysisHistory(ctx context.Context, eco model.Ecosystem, name string, limit int) ([]model.LibraryAnalysis, error)
+
+	// SaveAssessment appends a finding assessment (history is kept) and sets its ID.
+	SaveAssessment(ctx context.Context, a *model.FindingAssessment) error
+	// LatestAssessments returns the newest assessment per key among those
+	// that apply to one of keys: same advisory, ecosystem, package and
+	// version, and repo "" (every repo) or that key's Repo. Ordered by
+	// advisory, ecosystem, package, version, repo; each key appears once.
+	LatestAssessments(ctx context.Context, keys []model.AssessmentKey) ([]model.FindingAssessment, error)
+	// AssessmentHistory returns every assessment that applies to k (as in
+	// LatestAssessments), newest first.
+	AssessmentHistory(ctx context.Context, k model.AssessmentKey, limit int) ([]model.FindingAssessment, error)
 }
 
 // InventoryFilter selects inventory items. Zero fields do not filter.

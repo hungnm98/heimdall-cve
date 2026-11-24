@@ -34,6 +34,7 @@ func RunIntel(t *testing.T, newStore func(t *testing.T) store.Store) {
 	t.Run("PackageUsage", func(t *testing.T) { testPackageUsage(t, open(t)) })
 	t.Run("AgentAdvisories", func(t *testing.T) { testAgentAdvisories(t, open(t)) })
 	t.Run("Analyses", func(t *testing.T) { testAnalyses(t, open(t)) })
+	t.Run("Assessments", func(t *testing.T) { testAssessments(t, open(t)) })
 	t.Run("Concurrent", func(t *testing.T) { testIntelConcurrent(t, open(t)) })
 }
 
@@ -464,6 +465,127 @@ func testAnalyses(t *testing.T, in store.Intel) {
 	h = history(t, in, model.EcosystemNPM, "lodash", 0)
 	if h[1].Evidence[0] != "https://example.com/lodash" || h[2].Evidence[0] != "https://example.com/lodash" {
 		t.Fatalf("stored analysis changed through an alias: %+v", h)
+	}
+}
+
+func assessment(k model.AssessmentKey, d model.Decision, at time.Time) *model.FindingAssessment {
+	return &model.FindingAssessment{AdvisoryID: k.AdvisoryID, Ecosystem: k.Ecosystem, Package: k.Package, Version: k.Version,
+		Repo: k.Repo, Decision: d, Score: 87.5, Rationale: "reachable from the public API", Evidence: []string{"https://example.com/" + k.Package},
+		Confidence: model.ConfidenceMedium, InputsHash: "h-" + k.Version, AssessedBy: "triager", AssessedAt: at}
+}
+
+func assessmentIDs(as []model.FindingAssessment) []int64 {
+	out := make([]int64, len(as))
+	for i, a := range as {
+		out[i] = a.ID
+	}
+	return out
+}
+
+func latestAssessments(t *testing.T, in store.Intel, keys ...model.AssessmentKey) []int64 {
+	t.Helper()
+	got, err := in.LatestAssessments(context.Background(), keys)
+	must(t, err)
+	return assessmentIDs(got)
+}
+
+func assessmentHistory(t *testing.T, in store.Intel, k model.AssessmentKey, limit int) []int64 {
+	t.Helper()
+	got, err := in.AssessmentHistory(context.Background(), k, limit)
+	must(t, err)
+	return assessmentIDs(got)
+}
+
+func testAssessments(t *testing.T, in store.Intel) {
+	ctx := context.Background()
+	key := func(adv string, eco model.Ecosystem, pkg, version, repo string) model.AssessmentKey {
+		return model.AssessmentKey{AdvisoryID: adv, Ecosystem: eco, Package: pkg, Version: version, Repo: repo}
+	}
+	all := key("GHSA-1", model.EcosystemNPM, "lodash", "4.17.20", "")
+	inA, inB, inC := all, all, all
+	inA.Repo, inB.Repo, inC.Repo = "o/a", "o/b", "o/c"
+	netKey := key("GHSA-2", model.EcosystemGo, "golang.org/x/net", "v0.1.0", "")
+
+	if got := latestAssessments(t, in, inA); len(got) != 0 {
+		t.Fatalf("empty store: %v", got)
+	}
+	if got := latestAssessments(t, in); len(got) != 0 {
+		t.Fatalf("no keys: %v", got)
+	}
+	if got := assessmentHistory(t, in, inA, 0); len(got) != 0 {
+		t.Fatalf("empty history: %v", got)
+	}
+	save := func(a *model.FindingAssessment) *model.FindingAssessment {
+		t.Helper()
+		must(t, in.SaveAssessment(ctx, a))
+		return a
+	}
+	a1 := save(assessment(all, model.DecisionSchedule, t0))
+	a2 := save(assessment(inA, model.DecisionNotAffected, t0.Add(time.Hour)))
+	a3 := save(assessment(all, model.DecisionFixNow, t0.Add(2*time.Hour)))
+	a4 := save(assessment(inB, model.DecisionMonitor, t0.Add(3*time.Hour)))
+	v2 := save(assessment(key("GHSA-1", model.EcosystemNPM, "lodash", "4.17.21", ""), model.DecisionMonitor, t0))
+	n1 := save(assessment(netKey, model.DecisionFalsePositive, t0))
+	if a1.ID <= 0 {
+		t.Fatalf("SaveAssessment must set a positive ID: %d", a1.ID)
+	}
+	for i, ids := 1, []int64{a1.ID, a2.ID, a3.ID, a4.ID, v2.ID, n1.ID}; i < len(ids); i++ {
+		if ids[i] <= ids[i-1] {
+			t.Fatalf("IDs must increase: %v", ids)
+		}
+	}
+
+	// Newest repo-agnostic row plus the newest row of the key's repo.
+	for _, c := range []struct {
+		what string
+		keys []model.AssessmentKey
+		want []int64
+	}{
+		{"repo with its own assessment", []model.AssessmentKey{inA}, []int64{a3.ID, a2.ID}},
+		{"repo-agnostic key", []model.AssessmentKey{all}, []int64{a3.ID}},
+		{"repo without its own assessment", []model.AssessmentKey{inC}, []int64{a3.ID}},
+		{"several keys: each row once, sorted", []model.AssessmentKey{netKey, inB, inA, inA, inC}, []int64{a3.ID, a2.ID, a4.ID, n1.ID}},
+		{"other version", []model.AssessmentKey{key("GHSA-1", model.EcosystemNPM, "lodash", "9.9.9", "o/a")}, nil},
+		{"other ecosystem", []model.AssessmentKey{key("GHSA-1", model.EcosystemGo, "lodash", "4.17.20", "o/a")}, nil},
+		{"other advisory", []model.AssessmentKey{key("GHSA-9", model.EcosystemNPM, "lodash", "4.17.20", "")}, nil},
+	} {
+		if got := latestAssessments(t, in, c.keys...); !slices.Equal(got, c.want) {
+			t.Fatalf("LatestAssessments (%s) = %v, want %v", c.what, got, c.want)
+		}
+	}
+
+	// Every field round-trips.
+	full, err := in.LatestAssessments(ctx, []model.AssessmentKey{netKey})
+	must(t, err)
+	if len(full) != 1 {
+		t.Fatalf("LatestAssessments(x/net) = %+v", full)
+	}
+	n := full[0]
+	n.AssessedAt = n.AssessedAt.UTC()
+	if !reflect.DeepEqual(n, *n1) {
+		t.Fatalf("assessment round-trip:\n got %+v\nwant %+v", n, *n1)
+	}
+
+	// History: what applies to the key, newest first, limit.
+	if got, want := assessmentHistory(t, in, inA, 0), []int64{a3.ID, a2.ID, a1.ID}; !slices.Equal(got, want) {
+		t.Fatalf("AssessmentHistory(o/a) = %v, want %v", got, want)
+	}
+	if got, want := assessmentHistory(t, in, all, 0), []int64{a3.ID, a1.ID}; !slices.Equal(got, want) {
+		t.Fatalf("AssessmentHistory(all repos) = %v, want %v", got, want)
+	}
+	if got, want := assessmentHistory(t, in, inA, 2), []int64{a3.ID, a2.ID}; !slices.Equal(got, want) {
+		t.Fatalf("AssessmentHistory limit = %v, want %v", got, want)
+	}
+
+	// No aliasing of stored evidence.
+	a1.Evidence[0] = "MUTATED"
+	h, err := in.AssessmentHistory(ctx, all, 0)
+	must(t, err)
+	h[0].Evidence[0] = "MUTATED"
+	h, err = in.AssessmentHistory(ctx, all, 0)
+	must(t, err)
+	if h[0].Evidence[0] != "https://example.com/lodash" || h[1].Evidence[0] != "https://example.com/lodash" {
+		t.Fatalf("stored assessment changed through an alias: %+v", h)
 	}
 }
 

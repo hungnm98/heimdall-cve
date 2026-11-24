@@ -174,8 +174,8 @@ func list(t *testing.T, out map[string]any, key string) []any {
 
 var allTools = []string{
 	"list_targets", "list_repos", "get_inventory", "get_analysis_queue", "get_analyses", "get_findings", "get_finding",
-	"get_upgrade_plan", "get_runtime_status", "list_runs", "diff_scans", "list_sources",
-	"scan_target", "scan_repo", "get_scan_status", "submit_advisory", "submit_analysis", "notify_user",
+	"get_upgrade_plan", "get_runtime_status", "list_runs", "diff_scans", "list_sources", "triage_queue", "get_assessments",
+	"scan_target", "scan_repo", "get_scan_status", "submit_advisory", "submit_analysis", "submit_assessment", "notify_user",
 }
 
 func TestToolsListed(t *testing.T) {
@@ -283,6 +283,8 @@ func TestDisabledTools(t *testing.T) {
 			"--allow-agent-writes"},
 		"submit_analysis": {map[string]any{"ecosystem": "npm", "name": "lodash", "verdict": "ok", "summary": "nothing notable found",
 			"evidence": []string{"https://example.com/x"}, "confidence": "low"}, "--allow-agent-writes"},
+		"submit_assessment": {map[string]any{"finding_id": e.findings[1].ID, "decision": "fix-now", "score": 90,
+			"evidence": []string{"https://example.com/x"}, "confidence": "high"}, "--allow-agent-writes"},
 		"notify_user": {map[string]any{"title": "t", "body": "b", "severity": "LOW"}, "--allow-notify"},
 	}
 	for tool, c := range cases {
@@ -368,6 +370,53 @@ func TestWriteTools(t *testing.T) {
 	}
 }
 
+func TestTriageTools(t *testing.T) {
+	e := newEnv(t, true)
+	crit := e.findings[1].ID
+	// The CRITICAL KEV finding is queued; MEDIUM and runtime findings are not.
+	items := list(t, e.ok(t, "triage_queue", nil), "items")
+	if len(items) != 1 {
+		t.Fatalf("triage queue %v", items)
+	}
+	it := items[0].(map[string]any)
+	if it["finding"].(map[string]any)["id"] != crit || it["repo_count"] != float64(1) || !strings.Contains(it["reason"].(string), "never assessed") {
+		t.Fatalf("triage item %v", it)
+	}
+	if _, errText := e.call(t, "triage_queue", map[string]any{"min_severity": "bogus"}); !strings.Contains(errText, "min_severity") {
+		t.Fatalf("bad severity error %q", errText)
+	}
+	if _, errText := e.call(t, "submit_assessment", map[string]any{"finding_id": crit, "decision": "maybe", "score": 150, "confidence": "high"}); !strings.Contains(errText, "decision") || !strings.Contains(errText, "score") {
+		t.Fatalf("validation error %q", errText)
+	}
+
+	a := e.ok(t, "submit_assessment", map[string]any{"finding_id": crit, "decision": "fix-now", "score": 95,
+		"rationale": "exploited in the wild, patch release available", "evidence": []string{"https://example.com/kev"}, "confidence": "high"})
+	if a["decision"] != "fix-now" || a["assessed_by"] != "mcp:test-agent" || a["repo"] != nil || a["package"].(map[string]any)["name"] != "left-pad" {
+		t.Fatalf("assessment %v", a)
+	}
+	if items := list(t, e.ok(t, "triage_queue", nil), "items"); len(items) != 0 {
+		t.Fatalf("an assessed finding must leave the queue: %v", items)
+	}
+	f := e.ok(t, "get_finding", map[string]any{"id": crit})
+	brief, ok := f["agent_assessment"].(map[string]any)
+	if !ok || brief["decision"] != "fix-now" || brief["score"] != float64(95) || brief["fresh"] != true || f["status"] != "open" {
+		t.Fatalf("get_finding must carry the assessment: %v", f)
+	}
+	fs := list(t, e.ok(t, "get_findings", map[string]any{"kind": "dependency"}), "findings")
+	for _, x := range fs {
+		x := x.(map[string]any)
+		if _, has := x["agent_assessment"]; has != (x["id"] == crit) {
+			t.Fatalf("get_findings: only the assessed finding has agent_assessment: %v", fs)
+		}
+	}
+	if h := list(t, e.ok(t, "get_assessments", map[string]any{"finding_id": crit}), "assessments"); len(h) != 1 {
+		t.Fatalf("assessments %v", h)
+	}
+	if _, errText := e.call(t, "get_assessments", map[string]any{"finding_id": "nope"}); !strings.Contains(errText, "not found") {
+		t.Fatalf("missing finding error %q", errText)
+	}
+}
+
 func TestPromptsAndResources(t *testing.T) {
 	e := newEnv(t, false)
 	ctx := context.Background()
@@ -379,7 +428,7 @@ func TestPromptsAndResources(t *testing.T) {
 	for _, p := range ps.Prompts {
 		names[p.Name] = true
 	}
-	for _, n := range []string{"daily-scan", "analyze-library", "refresh-intel"} {
+	for _, n := range []string{"daily-scan", "analyze-library", "refresh-intel", "triage-findings"} {
 		if !names[n] {
 			t.Fatalf("prompt %s missing: %v", n, names)
 		}

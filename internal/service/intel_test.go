@@ -299,6 +299,190 @@ func TestNotifyUser(t *testing.T) {
 	}
 }
 
+// seedTriage records open findings: GHSA-1 on lodash 4.17.20 (HIGH) in three
+// repos, a MEDIUM one, a LOW one in KEV and a runtime finding.
+func seedTriage(t *testing.T, st *memstore.Store) map[string]model.Finding {
+	t.Helper()
+	ctx := context.Background()
+	mk := func(repo, adv, name string, sev model.Severity, prio float64) model.Finding {
+		f := model.Finding{Kind: model.KindDependency, Provider: "github", Repo: repo, ManifestPath: "package.json",
+			Package: model.NewPackage(model.EcosystemNPM, name, "1.0.0"), AdvisoryID: adv, Severity: sev, CVSSScore: 7.5,
+			EPSS: 0.12, FixedVersions: []string{"1.0.1"}, Priority: prio}
+		f.ComputeID()
+		return f
+	}
+	fs := map[string]model.Finding{
+		"a":   mk("o/a", "GHSA-1", "lodash", model.SeverityHigh, 50),
+		"b":   mk("o/b", "GHSA-1", "lodash", model.SeverityHigh, 60),
+		"c":   mk("o/c", "GHSA-1", "lodash", model.SeverityHigh, 40),
+		"med": mk("o/a", "GHSA-2", "axios", model.SeverityMedium, 30),
+		"kev": mk("o/a", "GHSA-3", "left-pad", model.SeverityLow, 20),
+	}
+	kev := fs["kev"]
+	kev.InKEV = true
+	fs["kev"] = kev
+	rt := model.Finding{Kind: model.KindRuntime, Provider: "github", Repo: "o/a", ManifestPath: ".nvmrc", AdvisoryID: "EOL-node-16",
+		Severity: model.SeverityHigh, Priority: 90, Runtime: &model.RuntimeStatus{Runtime: model.Runtime{Name: "node", Version: "16"}, Status: model.SupportEOL}}
+	rt.ComputeID()
+	fs["rt"] = rt
+	run := &model.ScanRun{StartedAt: t0}
+	must(t, st.StartRun(ctx, run))
+	all := make([]model.Finding, 0, len(fs))
+	for _, f := range fs {
+		all = append(all, f)
+	}
+	if _, err := st.RecordFindings(ctx, run.ID, []string{"o/a", "o/b", "o/c"}, all, t0); err != nil {
+		t.Fatal(err)
+	}
+	return fs
+}
+
+func triageAdvisories(t *testing.T, e *intelEnv, f service.TriageFilter) []string {
+	t.Helper()
+	q, err := e.svc.Intel.TriageQueue(context.Background(), f)
+	must(t, err)
+	var out []string
+	for _, it := range q {
+		out = append(out, it.Finding.AdvisoryID+"@"+strings.Join(it.Repos, "+"))
+	}
+	return out
+}
+
+func TestTriageAndAssessments(t *testing.T) {
+	ctx := context.Background()
+	e := newIntelEnv(t, true, false)
+	fs := seedTriage(t, e.st)
+
+	// HIGH+ or KEV, dependency only; GHSA-1 collapses to one item led by the
+	// highest-priority finding.
+	q, err := e.svc.Intel.TriageQueue(ctx, service.TriageFilter{})
+	must(t, err)
+	if len(q) != 2 || q[0].Finding.ID != fs["b"].ID || strings.Join(q[0].Repos, ",") != "o/a,o/b,o/c" || q[0].LastAssessment != nil ||
+		!strings.Contains(q[0].Reason, "never assessed") || !strings.Contains(q[0].Reason, "3 repos") {
+		t.Fatalf("queue %+v", q)
+	}
+	if q[1].Finding.ID != fs["kev"].ID || !strings.Contains(q[1].Reason, "KEV") {
+		t.Fatalf("KEV item %+v", q[1])
+	}
+	if got := triageAdvisories(t, e, service.TriageFilter{KEVOnly: true}); strings.Join(got, ",") != "GHSA-3@o/a" {
+		t.Fatalf("kev only %v", got)
+	}
+	if got := triageAdvisories(t, e, service.TriageFilter{Repo: "o/c"}); strings.Join(got, ",") != "GHSA-1@o/c" {
+		t.Fatalf("repo filter %v", got)
+	}
+	if got := triageAdvisories(t, e, service.TriageFilter{MinSeverity: "medium", Limit: 2}); strings.Join(got, ",") != "GHSA-1@o/a+o/b+o/c,GHSA-2@o/a" {
+		t.Fatalf("min severity + limit %v", got)
+	}
+	if f := fieldsOf(t, func() error {
+		_, err := e.svc.Intel.TriageQueue(ctx, service.TriageFilter{MinSeverity: "bogus"})
+		return err
+	}()); f["min_severity"] == "" {
+		t.Fatalf("bad severity %v", f)
+	}
+
+	// Writes are gated; input is validated.
+	in := service.AssessmentInput{FindingID: fs["a"].ID, Decision: "schedule", Score: 70, Rationale: "patch available, no known exploit",
+		Evidence: []string{"https://github.com/advisories/GHSA-1"}, Confidence: "medium"}
+	off := newIntelEnv(t, false, false)
+	if _, err := off.svc.Intel.SubmitAssessment(ctx, "mcp:x", in); !errors.Is(err, service.ErrForbidden) {
+		t.Fatalf("disabled: %v", err)
+	}
+	bad := service.AssessmentInput{FindingID: fs["a"].ID, Decision: "panic", Score: 101, Rationale: "short", Evidence: []string{"http://x.example"}, Confidence: "x"}
+	f := fieldsOf(t, func() error { _, err := e.svc.Intel.SubmitAssessment(ctx, "mcp:x", bad); return err }())
+	for _, k := range []string{"decision", "score", "evidence", "confidence"} {
+		if f[k] == "" {
+			t.Errorf("missing field error %q in %v", k, f)
+		}
+	}
+	if f := fieldsOf(t, func() error {
+		_, err := e.svc.Intel.SubmitAssessment(ctx, "mcp:x", service.AssessmentInput{FindingID: fs["a"].ID, Decision: "monitor", Score: 10, Rationale: "too short", Confidence: "low"})
+		return err
+	}()); !strings.Contains(f["evidence"], "rationale") {
+		t.Fatalf("no evidence and a short rationale: %v", f)
+	}
+	if f := fieldsOf(t, func() error {
+		rt := in
+		rt.FindingID = fs["rt"].ID
+		_, err := e.svc.Intel.SubmitAssessment(ctx, "mcp:x", rt)
+		return err
+	}()); f["finding_id"] == "" {
+		t.Fatalf("runtime finding must be rejected: %v", f)
+	}
+	missing := in
+	missing.FindingID = "nope"
+	if _, err := e.svc.Intel.SubmitAssessment(ctx, "mcp:x", missing); !errors.Is(err, service.ErrNotFound) {
+		t.Fatalf("missing finding: %v", err)
+	}
+
+	// One repo-agnostic assessment covers GHSA-1 in every repo.
+	a, err := e.svc.Intel.SubmitAssessment(ctx, "mcp:x", in)
+	must(t, err)
+	if a.ID == 0 || a.Repo != "" || a.AdvisoryID != "GHSA-1" || a.Package != "lodash" || a.Version != "1.0.0" || a.InputsHash == "" ||
+		a.AssessedBy != "mcp:x" || !a.AssessedAt.Equal(t0) || a.Decision != model.DecisionSchedule {
+		t.Fatalf("assessment %+v", a)
+	}
+	if got := triageAdvisories(t, e, service.TriageFilter{}); strings.Join(got, ",") != "GHSA-3@o/a" {
+		t.Fatalf("assessed item must leave the queue: %v", got)
+	}
+	// A repo-specific decision for o/c; a substantial rationale stands in for evidence.
+	spec, err := e.svc.Intel.SubmitAssessment(ctx, "mcp:x", service.AssessmentInput{FindingID: fs["c"].ID, Decision: "not-affected", Score: 5,
+		Rationale: "o/c never calls _.template, the vulnerable function", Confidence: "high", RepoSpecific: true})
+	must(t, err)
+	if spec.Repo != "o/c" || len(spec.Evidence) != 0 {
+		t.Fatalf("repo-specific %+v", spec)
+	}
+
+	st, err := e.svc.Intel.LatestAssessments(ctx, []model.Finding{fs["a"], fs["b"], fs["c"], fs["med"], fs["rt"]}, 0)
+	must(t, err)
+	if len(st) != 3 || st[fs["a"].ID].Assessment.ID != a.ID || st[fs["b"].ID].Assessment.ID != a.ID || !st[fs["a"].ID].Fresh ||
+		st[fs["c"].ID].Assessment.ID != spec.ID || !st[fs["c"].ID].Fresh {
+		t.Fatalf("latest %+v", st)
+	}
+	// EPSS moves within its 0.1 bucket: still fresh. KEV listing: stale.
+	jitter, listed := fs["a"], fs["a"]
+	jitter.EPSS, listed.InKEV, listed.ID = 0.14, true, "listed"
+	st, err = e.svc.Intel.LatestAssessments(ctx, []model.Finding{jitter, listed}, 0)
+	must(t, err)
+	if !st[jitter.ID].Fresh {
+		t.Fatal("EPSS jitter inside the bucket must keep the assessment fresh")
+	}
+	if st["listed"].Assessment.ID != a.ID || st["listed"].Fresh {
+		t.Fatal("a finding newly in KEV must make the assessment stale")
+	}
+
+	hist, err := e.svc.Intel.Assessments(ctx, fs["c"].ID, 0)
+	must(t, err)
+	if len(hist) != 2 || hist[0].ID != spec.ID || hist[1].ID != a.ID {
+		t.Fatalf("history of o/c %+v", hist)
+	}
+	if hist, _ := e.svc.Intel.Assessments(ctx, fs["a"].ID, 0); len(hist) != 1 {
+		t.Fatalf("history of o/a must not include o/c's assessment: %+v", hist)
+	}
+
+	// After staleAfter, the agnostic item returns for o/a and o/b, and o/c's
+	// repo-specific assessment comes back as its own item.
+	e.now = t0.Add(31 * 24 * time.Hour)
+	q, err = e.svc.Intel.TriageQueue(ctx, service.TriageFilter{})
+	must(t, err)
+	if len(q) != 3 || strings.Join(q[0].Repos, ",") != "o/a,o/b" || q[0].LastAssessment == nil || q[0].LastAssessment.ID != a.ID ||
+		!strings.Contains(q[0].Reason, "31 days") || q[1].Finding.ID != fs["c"].ID || q[1].LastAssessment == nil || q[1].LastAssessment.ID != spec.ID {
+		t.Fatalf("stale queue %+v", q)
+	}
+	if q, _ := e.svc.Intel.TriageQueue(ctx, service.TriageFilter{StaleAfter: 60 * 24 * time.Hour}); len(q) != 1 {
+		t.Fatalf("stale_after ignored: %+v", q)
+	}
+
+	// Assessments never change the finding.
+	got, err := e.st.GetFinding(ctx, fs["a"].ID)
+	must(t, err)
+	if got.Priority != 50 || got.Status != model.StatusOpen || got.Severity != model.SeverityHigh {
+		t.Fatalf("finding changed: %+v", got)
+	}
+	if acts := auditActions(t, e.st); strings.Join(acts, ",") != "agent.assessment.submit,agent.assessment.submit" {
+		t.Fatalf("audit %v", acts)
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

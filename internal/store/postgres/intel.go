@@ -243,3 +243,75 @@ func (s *Store) queryAnalyses(ctx context.Context, sql string, args ...any) ([]m
 	}
 	return out, rows.Err()
 }
+
+// ---- finding assessments ----
+
+const assessmentCols = "id, advisory_id, ecosystem, package, version, repo, decision, score, rationale, evidence, confidence, inputs_hash, assessed_by, assessed_at"
+
+func (s *Store) SaveAssessment(ctx context.Context, a *model.FindingAssessment) error {
+	return s.pool.QueryRow(ctx, `INSERT INTO finding_assessments
+		(advisory_id, ecosystem, package, version, repo, decision, score, rationale, evidence, confidence, inputs_hash, assessed_by, assessed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
+		a.AdvisoryID, string(a.Ecosystem), a.Package, a.Version, a.Repo, string(a.Decision), a.Score, a.Rationale,
+		nonNil(a.Evidence), string(a.Confidence), a.InputsHash, a.AssessedBy, a.AssessedAt,
+	).Scan(&a.ID)
+}
+
+func (s *Store) LatestAssessments(ctx context.Context, keys []model.AssessmentKey) ([]model.FindingAssessment, error) {
+	var advs, ecos, pkgs, vers, repos []string
+	seen := make(map[model.AssessmentKey]bool, len(keys))
+	for _, k := range keys {
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		advs, ecos, pkgs, vers, repos = append(advs, k.AdvisoryID), append(ecos, string(k.Ecosystem)), append(pkgs, k.Package),
+			append(vers, k.Version), append(repos, k.Repo)
+	}
+	if len(advs) == 0 {
+		return nil, nil
+	}
+	// Per key: the newest repo-agnostic row and the newest row of the key's
+	// repo, each one index probe on finding_assessments_key_idx. DISTINCT ON
+	// drops the repo-agnostic row selected by several keys.
+	const match = "a.advisory_id = k.k_adv AND a.ecosystem = k.k_eco AND a.package = k.k_pkg AND a.version = k.k_ver"
+	sql := "SELECT DISTINCT ON (advisory_id, ecosystem, package, version, repo) " + assessmentCols + `
+		FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[]) AS k(k_adv, k_eco, k_pkg, k_ver, k_repo)
+		CROSS JOIN LATERAL (
+			(SELECT ` + assessmentCols + " FROM finding_assessments a WHERE " + match + ` AND a.repo = '' ORDER BY a.id DESC LIMIT 1)
+			UNION ALL
+			(SELECT ` + assessmentCols + " FROM finding_assessments a WHERE " + match + ` AND k.k_repo <> '' AND a.repo = k.k_repo ORDER BY a.id DESC LIMIT 1)
+		) x
+		ORDER BY advisory_id, ecosystem, package, version, repo`
+	return s.queryAssessments(ctx, sql, advs, ecos, pkgs, vers, repos)
+}
+
+func (s *Store) AssessmentHistory(ctx context.Context, k model.AssessmentKey, limit int) ([]model.FindingAssessment, error) {
+	var lim any
+	if limit > 0 {
+		lim = limit
+	}
+	return s.queryAssessments(ctx, "SELECT "+assessmentCols+` FROM finding_assessments
+		WHERE advisory_id = $1 AND ecosystem = $2 AND package = $3 AND version = $4 AND (repo = '' OR repo = $5)
+		ORDER BY id DESC LIMIT $6`, k.AdvisoryID, string(k.Ecosystem), k.Package, k.Version, k.Repo, lim)
+}
+
+func (s *Store) queryAssessments(ctx context.Context, sql string, args ...any) ([]model.FindingAssessment, error) {
+	rows, err := s.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.FindingAssessment
+	for rows.Next() {
+		var a model.FindingAssessment
+		var eco, decision, conf string
+		if err := rows.Scan(&a.ID, &a.AdvisoryID, &eco, &a.Package, &a.Version, &a.Repo, &decision, &a.Score, &a.Rationale,
+			&a.Evidence, &conf, &a.InputsHash, &a.AssessedBy, &a.AssessedAt); err != nil {
+			return nil, err
+		}
+		a.Ecosystem, a.Decision, a.Confidence = model.Ecosystem(eco), model.Decision(decision), model.Confidence(conf)
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

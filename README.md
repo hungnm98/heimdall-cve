@@ -72,20 +72,31 @@ Or over HTTP: `bin/heimdall mcp --transport http` serves `http://127.0.0.1:8090/
 
 - **Read tools**: `list_targets`, `list_repos`, `get_inventory`, `get_analysis_queue`,
   `get_analyses`, `get_findings`, `get_finding`, `get_upgrade_plan`, `get_runtime_status`,
-  `list_runs`, `diff_scans`, `list_sources`, `get_scan_status`.
+  `list_runs`, `diff_scans`, `list_sources`, `get_scan_status`, `triage_queue`,
+  `get_assessments`.
 - **Gated tools**, off by default, enabled by a flag or the config (flags only enable):
   `scan_target` / `scan_repo` (`--allow-scan`, `mcp.allow_scan`; they queue jobs that
   `heimdall serve` or `heimdall worker` executes, `mcp` runs no workers),
-  `submit_advisory` / `submit_analysis` (`--allow-agent-writes`, `mcp.allow_agent_writes`),
+  `submit_advisory` / `submit_analysis` / `submit_assessment` (`--allow-agent-writes`,
+  `mcp.allow_agent_writes`),
   `notify_user` (`--allow-notify`, `mcp.allow_notify`; deduplicated, at most
   `mcp.notify_daily_limit` messages per UTC day, default 20). Disabled tools stay listed and
   answer with the flag that enables them.
 - Agent advisories use ids `HEIMDALL-AGENT-<year>-<n>` (public ids go in `aliases`), need
   https evidence and a confidence, and are always stored unverified; they merge with the
   public record once OSV publishes one sharing an alias.
+- Finding triage: `triage_queue` lists open HIGH+ (and any KEV or malicious) dependency
+  findings without a fresh agent assessment, one item per advisory and package version
+  across repos. `submit_assessment` records a decision (`fix-now`, `schedule`, `monitor`,
+  `not-affected`, `false-positive`), a 0–100 score, a rationale and evidence, for every repo
+  or (`repo_specific`) one repo. An assessment stays fresh for 30 days unless the finding's
+  severity, CVSS, KEV, malicious flag, EPSS (to 0.1) or fix versions change.
+  `get_finding` / `get_findings` show the latest one as `agent_assessment`; it never changes
+  a finding's priority or status.
 - Every tool call is written to the audit log as `mcp:<client name>`. No tool returns secrets.
 - Resources: `heimdall://runs/latest`, `heimdall://config` (redacted). Prompts: the routines
-  in [prompts/](prompts) (`daily-scan`, `analyze-library`, `refresh-intel`).
+  in [prompts/](prompts) (`daily-scan`, `analyze-library`, `refresh-intel`,
+  `triage-findings`).
 - The inventory, analysis queue, agent writes and `notify_user` use the store's agent
   intelligence (`store.Intel`), implemented by both `postgres` and `memory`. The inventory
   is filled by scans, so run a scan before asking agents to analyze libraries.

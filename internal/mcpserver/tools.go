@@ -134,6 +134,29 @@ type analysisIn struct {
 	Confidence         string   `json:"confidence" jsonschema:"low, medium or high"`
 }
 
+type triageIn struct {
+	MinSeverity string `json:"min_severity,omitempty" jsonschema:"CRITICAL, HIGH (default), MEDIUM or LOW; KEV and malicious findings are included at any severity"`
+	Repo        string `json:"repo,omitempty" jsonschema:"owner/name"`
+	KEVOnly     bool   `json:"kev_only,omitempty" jsonschema:"only findings in CISA KEV"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"max items (default 20, max 100)"`
+	StaleDays   int    `json:"stale_days,omitempty" jsonschema:"an assessment older than this many days is redone (default 30)"`
+}
+
+type assessmentIn struct {
+	FindingID    string   `json:"finding_id" jsonschema:"finding id (from triage_queue or get_findings)"`
+	Decision     string   `json:"decision" jsonschema:"fix-now, schedule, monitor, not-affected or false-positive"`
+	Score        float64  `json:"score" jsonschema:"your urgency, 0 to 100"`
+	Rationale    string   `json:"rationale,omitempty" jsonschema:"why, at most 4000 characters; at least 20 characters when no evidence is given"`
+	Evidence     []string `json:"evidence,omitempty" jsonschema:"https URLs you relied on"`
+	Confidence   string   `json:"confidence" jsonschema:"low, medium or high"`
+	RepoSpecific bool     `json:"repo_specific,omitempty" jsonschema:"the decision depends on this repo's code (e.g. the vulnerable function is not reachable here); default: applies to every repo using this package version"`
+}
+
+type assessmentsIn struct {
+	FindingID string `json:"finding_id" jsonschema:"finding id"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"max assessments, newest first (default 20)"`
+}
+
 type notifyIn struct {
 	Title    string   `json:"title" jsonschema:"short title, at most 200 characters"`
 	Body     string   `json:"body" jsonschema:"concise message, at most 4000 characters"`
@@ -151,6 +174,8 @@ func (s *Server) addTools() {
 	addTool(s, "get_analyses", "Analysis history of one library, newest first.", s.getAnalyses)
 	addTool(s, "get_findings", "Search findings, worst first. Defaults to open findings. Paginated.", s.getFindings)
 	addTool(s, "get_finding", "One finding in full: advisory, aliases, references, fix versions, recommendation, suppression.", s.getFinding)
+	addTool(s, "triage_queue", "Open findings to assess next (HIGH+ by default, KEV and malicious always), without a fresh agent assessment, highest priority first. One item per advisory and package version covers every repo listed. Each item says why.", s.triageQueue)
+	addTool(s, "get_assessments", "Agent assessments of a finding (repo-wide and for its repo), newest first.", s.getAssessments)
 	addTool(s, "get_upgrade_plan", "Per-package upgrade plan of a repo (recommended version, bump size, advisories fixed).", s.getUpgradePlan)
 	addTool(s, "get_runtime_status", "Runtime support status (Go/Node/Ruby EOL) of a repo, or open runtime findings across all repos.", s.getRuntimeStatus)
 	addTool(s, "list_runs", "Scan runs, newest first, with stats. Paginated.", s.listRuns)
@@ -161,6 +186,7 @@ func (s *Server) addTools() {
 	addTool(s, "get_scan_status", "Status of a scan job and its latest progress events.", s.getScanStatus)
 	addTool(s, "submit_advisory", "Submit a vulnerability not yet in public databases, as an OSV record with evidence (needs --allow-agent-writes). Stored as source agent, unverified; it merges with the public record once one shares an alias.", s.submitAdvisory)
 	addTool(s, "submit_analysis", "Record your assessment of a library with evidence (needs --allow-agent-writes).", s.submitAnalysis)
+	addTool(s, "submit_assessment", "Record your triage of a finding: decision, urgency score and rationale with evidence (needs --allow-agent-writes). Shown beside the finding as unverified; it never changes its priority or status.", s.submitAssessment)
 	addTool(s, "notify_user", "Send one concise message to the team through the configured notifiers (needs --allow-notify). Identical messages are sent once; there is a daily limit.", s.notifyUser)
 }
 
@@ -285,9 +311,17 @@ func (s *Server) getFindings(ctx context.Context, _ service.Actor, in findingsIn
 	if err != nil {
 		return nil, err
 	}
+	assessed, err := s.assessmentsOf(ctx, page.Items)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]findingOut, 0, len(page.Items))
 	for _, it := range page.Items {
-		out = append(out, toFinding(it))
+		fo := toFinding(it)
+		if st, ok := assessed[it.ID]; ok {
+			fo.AgentAssessment = toAssessmentBrief(st)
+		}
+		out = append(out, fo)
 	}
 	return map[string]any{"findings": out, "next_cursor": page.NextCursor}, nil
 }
@@ -300,7 +334,60 @@ func (s *Server) getFinding(ctx context.Context, _ service.Actor, in idIn) (any,
 	if err != nil {
 		return nil, err
 	}
-	return toFindingDetail(d), nil
+	assessed, err := s.assessmentsOf(ctx, []model.Finding{d.Finding})
+	if err != nil {
+		return nil, err
+	}
+	out := toFindingDetail(d)
+	if st, ok := assessed[d.Finding.ID]; ok {
+		out.AgentAssessment = toAssessmentBrief(st)
+	}
+	return out, nil
+}
+
+// assessmentsOf returns the latest agent assessment per finding id (none
+// without agent intelligence).
+func (s *Server) assessmentsOf(ctx context.Context, fs []model.Finding) (map[string]service.AssessmentStatus, error) {
+	if s.svcs.Intel == nil {
+		return nil, nil
+	}
+	return s.svcs.Intel.LatestAssessments(ctx, fs, 0)
+}
+
+func (s *Server) triageQueue(ctx context.Context, _ service.Actor, in triageIn) (any, error) {
+	if s.svcs.Intel == nil {
+		return nil, errNoIntel
+	}
+	if in.StaleDays < 0 {
+		return nil, badArg("stale_days", "must be positive")
+	}
+	q, err := s.svcs.Intel.TriageQueue(ctx, service.TriageFilter{
+		MinSeverity: model.Severity(in.MinSeverity), Repo: in.Repo, KEVOnly: in.KEVOnly, Limit: toolLimit(in.Limit),
+		StaleAfter: time.Duration(in.StaleDays) * 24 * time.Hour,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]triageOut, 0, len(q))
+	for _, it := range q {
+		out = append(out, toTriage(it))
+	}
+	return map[string]any{"items": out}, nil
+}
+
+func (s *Server) getAssessments(ctx context.Context, _ service.Actor, in assessmentsIn) (any, error) {
+	if s.svcs.Intel == nil {
+		return nil, errNoIntel
+	}
+	as, err := s.svcs.Intel.Assessments(ctx, in.FindingID, toolLimit(in.Limit))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]assessmentOut, 0, len(as))
+	for _, a := range as {
+		out = append(out, toAssessment(a))
+	}
+	return map[string]any{"assessments": out}, nil
 }
 
 func (s *Server) repoDetail(ctx context.Context, repo string) (*service.RepoDetail, error) {
@@ -528,6 +615,20 @@ func (s *Server) submitAnalysis(ctx context.Context, actor service.Actor, in ana
 		return nil, err
 	}
 	return toAnalysis(*a), nil
+}
+
+func (s *Server) submitAssessment(ctx context.Context, actor service.Actor, in assessmentIn) (any, error) {
+	if s.svcs.Intel == nil {
+		return nil, errNoIntel
+	}
+	a, err := s.svcs.Intel.SubmitAssessment(ctx, actor, service.AssessmentInput{
+		FindingID: in.FindingID, Decision: model.Decision(in.Decision), Score: in.Score, Rationale: in.Rationale,
+		Evidence: in.Evidence, Confidence: model.Confidence(in.Confidence), RepoSpecific: in.RepoSpecific,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return toAssessment(*a), nil
 }
 
 func (s *Server) notifyUser(ctx context.Context, actor service.Actor, in notifyIn) (any, error) {

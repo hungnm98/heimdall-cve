@@ -1,6 +1,6 @@
 // Package mcpserver exposes Heimdall to AI agents over the Model Context
 // Protocol (official Go SDK): read tools over scan results, scan triggers,
-// agent intelligence writes (advisories, analyses), team notifications,
+// agent intelligence writes (advisories, analyses, finding assessments), team notifications,
 // two resources and the routines in prompts/ as MCP prompts.
 //
 // It is an entry point like internal/api: it only calls internal/service and
@@ -123,11 +123,12 @@ func sanitize(s string, max int) string {
 
 // flagFor names the switch enabling a gated tool.
 var flagFor = map[string]string{
-	"scan_target":     "--allow-scan (config mcp.allow_scan: true)",
-	"scan_repo":       "--allow-scan (config mcp.allow_scan: true)",
-	"submit_advisory": "--allow-agent-writes (config mcp.allow_agent_writes: true)",
-	"submit_analysis": "--allow-agent-writes (config mcp.allow_agent_writes: true)",
-	"notify_user":     "--allow-notify (config mcp.allow_notify: true)",
+	"scan_target":       "--allow-scan (config mcp.allow_scan: true)",
+	"scan_repo":         "--allow-scan (config mcp.allow_scan: true)",
+	"submit_advisory":   "--allow-agent-writes (config mcp.allow_agent_writes: true)",
+	"submit_analysis":   "--allow-agent-writes (config mcp.allow_agent_writes: true)",
+	"submit_assessment": "--allow-agent-writes (config mcp.allow_agent_writes: true)",
+	"notify_user":       "--allow-notify (config mcp.allow_notify: true)",
 }
 
 var errDisabled = errors.New("disabled")

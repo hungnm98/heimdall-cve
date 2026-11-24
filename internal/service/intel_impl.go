@@ -367,6 +367,15 @@ func isWebURL(raw string, httpsOnly bool) bool {
 
 // checkEvidence requires 1..maxEvidence distinct https URLs.
 func checkEvidence(fe fieldErrors, in []string) []string {
+	out := evidenceURLs(fe, in)
+	if len(out) == 0 {
+		fe.add("evidence", "at least one https URL is required")
+	}
+	return out
+}
+
+// evidenceURLs accepts 0..maxEvidence distinct https URLs.
+func evidenceURLs(fe fieldErrors, in []string) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, e := range in {
@@ -381,10 +390,7 @@ func checkEvidence(fe fieldErrors, in []string) []string {
 		seen[e] = true
 		out = append(out, e)
 	}
-	switch {
-	case len(out) == 0:
-		fe.add("evidence", "at least one https URL is required")
-	case len(out) > maxEvidence:
+	if len(out) > maxEvidence {
 		fe.add("evidence", fmt.Sprintf("at most %d URLs", maxEvidence))
 	}
 	return out

@@ -53,6 +53,55 @@ type LibraryAnalysis struct {
 	AnalyzedAt         time.Time
 }
 
+// Decision is an agent's triage call on a finding.
+type Decision string
+
+const (
+	DecisionFixNow        Decision = "fix-now"        // exploitable here: fix immediately
+	DecisionSchedule      Decision = "schedule"       // fix in the normal upgrade cycle
+	DecisionMonitor       Decision = "monitor"        // no action yet; watch for an exploit or a fix
+	DecisionNotAffected   Decision = "not-affected"   // the vulnerable code is not reachable or not used
+	DecisionFalsePositive Decision = "false-positive" // the advisory does not apply to this version
+)
+
+// AssessmentKey identifies what an assessment is about: one advisory on one
+// package version, in every repo (Repo "") or in one repo.
+type AssessmentKey struct {
+	AdvisoryID string
+	Ecosystem  Ecosystem
+	Package    string
+	Version    string
+	Repo       string // "" = every repo using that package version
+}
+
+// FindingAssessment is one agent triage of a finding (history is kept; the
+// newest per key wins). It is shown alongside the finding and never changes
+// its priority, status or severity: it is unverified input.
+type FindingAssessment struct {
+	ID         int64
+	AdvisoryID string // canonical advisory id of the finding
+	Ecosystem  Ecosystem
+	Package    string
+	Version    string
+	Repo       string // "" = every repo; set when the decision depends on the repo's code
+	Decision   Decision
+	Score      float64 // 0-100, the agent's urgency
+	Rationale  string
+	Evidence   []string // https URLs; may be empty when the rationale is substantial
+	Confidence Confidence
+	// InputsHash fingerprints the finding facts the agent saw (severity,
+	// CVSS, KEV, malicious, EPSS bucket, fixed versions): once they change,
+	// the assessment is no longer fresh.
+	InputsHash string
+	AssessedBy string
+	AssessedAt time.Time
+}
+
+// Key returns the key of a.
+func (a FindingAssessment) Key() AssessmentKey {
+	return AssessmentKey{AdvisoryID: a.AdvisoryID, Ecosystem: a.Ecosystem, Package: a.Package, Version: a.Version, Repo: a.Repo}
+}
+
 // InventoryItem is one dependency of one manifest, as last scanned.
 type InventoryItem struct {
 	Repo         string
