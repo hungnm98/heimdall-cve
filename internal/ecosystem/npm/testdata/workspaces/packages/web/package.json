@@ -1,0 +1,7 @@
+{
+  "name": "@acme/web",
+  "version": "2.0.0",
+  "dependencies": {
+    "jsonwebtoken": "^8.5.1"
+  }
+}

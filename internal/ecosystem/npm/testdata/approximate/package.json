@@ -1,0 +1,31 @@
+{
+  "name": "no-lockfile",
+  "version": "0.0.1",
+  "dependencies": {
+    "express": "^4.18.2",
+    "lodash": "~4.17.21",
+    "uuid": ">=9.0.0",
+    "dayjs": "1.11.x",
+    "left-pad": "1.3.0",
+    "react": "^18 || ^19",
+    "rimraf": "*",
+    "next": "latest",
+    "fast-alias": "npm:fastify@^4.24.0",
+    "shared": "file:../shared",
+    "linked": "link:../linked",
+    "from-git": "git+https://github.com/acme/from-git.git#main",
+    "gh-short": "acme/gh-short#v1",
+    "tarball": "https://example.com/pkgs/tarball-1.0.0.tgz",
+    "sibling": "workspace:*"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "lodash": "^4.0.0"
+  },
+  "optionalDependencies": {
+    "fsevents": "^2.3.3"
+  },
+  "peerDependencies": {
+    "react-dom": "^18.2.0"
+  }
+}

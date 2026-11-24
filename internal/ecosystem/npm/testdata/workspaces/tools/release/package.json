@@ -1,0 +1,7 @@
+{
+  "name": "release-script",
+  "private": true,
+  "dependencies": {
+    "semver": "^7.5.0"
+  }
+}

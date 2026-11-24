@@ -1,0 +1,12 @@
+{
+  "name": "pnpm-nine",
+  "private": true,
+  "dependencies": {
+    "zod": "^3.22.4",
+    "@acme/ui": "workspace:*",
+    "lodash-es-legacy": "npm:lodash-es@4.17.20"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.4"
+  }
+}

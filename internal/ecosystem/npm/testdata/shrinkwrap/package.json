@@ -1,0 +1,9 @@
+{
+  "name": "@acme/cli",
+  "version": "3.1.0",
+  "bin": { "acme": "bin/acme.js" },
+  "dependencies": {
+    "commander": "^11.1.0",
+    "chalk": "^4.1.2"
+  }
+}

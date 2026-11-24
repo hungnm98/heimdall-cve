@@ -1,0 +1,11 @@
+{
+  "name": "@acme/ui",
+  "version": "0.0.1",
+  "dependencies": {
+    "clsx": "^2.0.0",
+    "design-tokens": "github:acme/design-tokens#v3"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  }
+}
