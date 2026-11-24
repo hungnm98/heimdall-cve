@@ -18,6 +18,7 @@ import (
 	_ "github.com/hungnm98/heimdall-cve/internal/runtime/node"
 	_ "github.com/hungnm98/heimdall-cve/internal/runtime/ruby"
 	_ "github.com/hungnm98/heimdall-cve/internal/source/endoflife"
+	_ "github.com/hungnm98/heimdall-cve/internal/source/nvd"
 	_ "github.com/hungnm98/heimdall-cve/internal/source/osv"
 	_ "github.com/hungnm98/heimdall-cve/internal/store/memstore"
 	_ "github.com/hungnm98/heimdall-cve/internal/store/postgres"

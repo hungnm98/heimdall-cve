@@ -48,9 +48,13 @@ private_modules: ["github.com/acme/*", "@acme/*", "acme-*"]
 skip_paths: ["node_modules/", "vendor/", "testdata/", ".git/", "examples/"]
 
 # Check sources. The key is the source name; `type` defaults to the key.
+# Without a `sources` section, osv and endoflife are enabled.
 sources:
-  osv: { enabled: true }
+  osv: { enabled: true }          # alias_severity: true fills GO-* severities from GHSA/CVE aliases
   endoflife: { enabled: true }
+  nvd:                            # CVSS for findings still without severity (CVE aliases)
+    api_key_env: NVD_API_KEY      # optional: 50 instead of 5 requests / 30 s
+    max_lookups: 200              # uncached CVEs per run; the rest on the next runs
 
 # Notification channels. Several instances of one type may coexist.
 notify:

@@ -146,11 +146,17 @@ func (p *Pipeline) scan(ctx context.Context, req ScanRequest, prog Progress, run
 	}
 	for _, e := range p.Enrichers {
 		start := time.Now()
+		before := unknownCount(all)
 		err := e.Enrich(ctx, ptrs)
 		run.Sources = append(run.Sources, health(e.Name(), err, 1, start))
 		if err != nil {
-			prog.Event("warn", "", fmt.Sprintf("enricher %s failed: %v", e.Name(), err))
+			prog.Event("warn", "", fmt.Sprintf("enricher %s: %v", e.Name(), err))
 		}
+		prog.Event("info", "", fmt.Sprintf("enricher %s: %d findings scored, %d still without severity", e.Name(), before-unknownCount(all), unknownCount(all)))
+	}
+	// Priority uses the final severity, so it is computed after enrichment.
+	for i := range all {
+		all[i].Priority = priority(all[i])
 	}
 	recommend.Apply(all, cmps)
 
@@ -539,10 +545,19 @@ func (p *Pipeline) applyPolicy(fs []model.Finding) []model.Finding {
 		if p.Policy.IgnoreDevDeps && f.Scope == model.ScopeDev {
 			continue
 		}
-		f.Priority = priority(f)
 		out = append(out, f)
 	}
 	return out
+}
+
+func unknownCount(fs []model.Finding) int {
+	n := 0
+	for _, f := range fs {
+		if f.Severity == model.SeverityUnknown {
+			n++
+		}
+	}
+	return n
 }
 
 // priority: KEV and malicious first, then severity, EPSS, direct and prod.
