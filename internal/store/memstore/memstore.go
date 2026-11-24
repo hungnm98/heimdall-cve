@@ -6,7 +6,9 @@ package memstore
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +31,7 @@ type Store struct {
 	scanned    map[int64]map[string]bool          // repos scanned per run
 	repoStates map[string]model.RepoState
 	notified   map[string]time.Time
+	cat        catalog // store.Catalog state (catalog.go)
 }
 
 var _ store.Store = (*Store)(nil)
@@ -186,8 +189,16 @@ func (s *Store) ListFindings(_ context.Context, flt store.FindingFilter) ([]mode
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []model.Finding
+	var cRank int
+	var cRepo, cID string
+	if flt.After != "" {
+		var err error
+		if cRank, cRepo, cID, err = store.ParseFindingCursor(flt.After); err != nil {
+			return nil, err
+		}
+	}
 	for _, f := range s.findings {
-		if match(f, flt) {
+		if match(f, flt) && (flt.After == "" || store.FindingAfter(f, cRank, cRepo, cID)) {
 			out = append(out, f)
 		}
 	}
@@ -205,10 +216,23 @@ func match(f model.Finding, flt store.FindingFilter) bool {
 		flt.Status != "" && f.Status != flt.Status,
 		flt.MinSeverity != "" && !f.Severity.AtLeast(flt.MinSeverity),
 		flt.InKEV && !f.InKEV,
-		!flt.NewSince.IsZero() && f.FirstSeen.Before(flt.NewSince):
+		!flt.NewSince.IsZero() && f.FirstSeen.Before(flt.NewSince),
+		flt.Query != "" && !matchQuery(f, flt.Query):
 		return false
 	}
 	return true
+}
+
+func matchQuery(f model.Finding, q string) bool {
+	if strings.Contains(strings.ToLower(f.Package.Name), strings.ToLower(q)) || f.AdvisoryID == q {
+		return true
+	}
+	for _, a := range f.Aliases {
+		if a == q {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) GetFinding(_ context.Context, id string) (*model.Finding, error) {
@@ -290,6 +314,7 @@ func cloneRun(r model.ScanRun) model.ScanRun {
 	r.ReposScanned = append([]string(nil), r.ReposScanned...)
 	r.ReposFailed = append([]string(nil), r.ReposFailed...)
 	r.Sources = append([]model.SourceHealth(nil), r.Sources...)
+	r.Stats.OpenBySeverity = maps.Clone(r.Stats.OpenBySeverity)
 	return r
 }
 

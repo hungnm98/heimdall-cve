@@ -166,7 +166,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 
 // ---- runs ----
 
-const runCols = "id, started_at, finished_at, status, targets, repos_scanned, repos_failed, sources, error"
+const runCols = "id, started_at, finished_at, status, targets, repos_scanned, repos_failed, sources, stats, error"
 
 func (s *Store) StartRun(ctx context.Context, run *model.ScanRun) error {
 	run.Status = model.RunRunning
@@ -185,9 +185,13 @@ func (s *Store) FinishRun(ctx context.Context, run *model.ScanRun) error {
 	if err != nil {
 		return err
 	}
+	stats, err := json.Marshal(run.Stats)
+	if err != nil {
+		return err
+	}
 	tag, err := s.pool.Exec(ctx, `UPDATE scan_runs SET finished_at = $2, status = $3, targets = $4, repos_scanned = $5,
-		repos_failed = $6, sources = $7, error = $8 WHERE id = $1`,
-		run.ID, nullTime(run.FinishedAt), run.Status, nonNil(run.Targets), nonNil(run.ReposScanned), nonNil(run.ReposFailed), src, run.Error)
+		repos_failed = $6, sources = $7, stats = $8, error = $9 WHERE id = $1`,
+		run.ID, nullTime(run.FinishedAt), run.Status, nonNil(run.Targets), nonNil(run.ReposScanned), nonNil(run.ReposFailed), src, stats, run.Error)
 	if err != nil {
 		return err
 	}
@@ -238,9 +242,12 @@ func (s *Store) ListRuns(ctx context.Context, limit int) ([]model.ScanRun, error
 func scanRun(row pgx.Row) (*model.ScanRun, error) {
 	var r model.ScanRun
 	var finished *time.Time
-	var src []byte
-	if err := row.Scan(&r.ID, &r.StartedAt, &finished, &r.Status, &r.Targets, &r.ReposScanned, &r.ReposFailed, &src, &r.Error); err != nil {
+	var src, stats []byte
+	if err := row.Scan(&r.ID, &r.StartedAt, &finished, &r.Status, &r.Targets, &r.ReposScanned, &r.ReposFailed, &src, &stats, &r.Error); err != nil {
 		return nil, err
+	}
+	if err := json.Unmarshal(stats, &r.Stats); err != nil {
+		return nil, fmt.Errorf("decode run stats: %w", err)
 	}
 	if finished != nil {
 		r.FinishedAt = *finished
@@ -444,6 +451,23 @@ func (s *Store) ListFindings(ctx context.Context, flt store.FindingFilter) ([]mo
 	}
 	if !flt.NewSince.IsZero() {
 		add("f.first_seen >= $%d", flt.NewSince)
+	}
+	if flt.Query != "" {
+		args = append(args, flt.Query)
+		n := len(args)
+		where = append(where, fmt.Sprintf(
+			"(f.package_name ILIKE '%%' || $%d || '%%' OR f.advisory_id = $%d OR f.data->'Aliases' ? $%d)", n, n, n))
+	}
+	if flt.After != "" {
+		rank, repo, id, err := store.ParseFindingCursor(flt.After)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, rank, repo, id)
+		n := len(args)
+		// Keyset on (severity_rank DESC, repo ASC, id ASC).
+		where = append(where, fmt.Sprintf(
+			"(f.severity_rank < $%d OR (f.severity_rank = $%d AND (f.repo, f.id) > ($%d, $%d)))", n-2, n-2, n-1, n))
 	}
 	sql := "SELECT " + selectFinding + " FROM findings f"
 	if len(where) > 0 {

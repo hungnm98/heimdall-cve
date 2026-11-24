@@ -119,13 +119,15 @@ func testRuns(t *testing.T, s store.Store) {
 		t.Fatal("LatestRun must ignore running runs")
 	}
 	r1.ReposScanned = []string{"o/a"}
+	r1.Stats = model.RunStats{OpenBySeverity: map[model.Severity]int{model.SeverityHigh: 3}, New: 2, Fixed: 1, Repos: 1}
 	finishRun(t, s, r1)
 	finishRun(t, s, r2)
 	if got, _ := s.LatestRun(ctx, 0); got == nil || got.ID != r2.ID {
 		t.Fatalf("LatestRun(0) = %+v, want run %d", got, r2.ID)
 	}
-	if got, _ := s.LatestRun(ctx, r2.ID); got == nil || got.ID != r1.ID || len(got.ReposScanned) != 1 {
-		t.Fatalf("LatestRun(before r2) = %+v, want run %d with repos", got, r1.ID)
+	if got, _ := s.LatestRun(ctx, r2.ID); got == nil || got.ID != r1.ID || len(got.ReposScanned) != 1 ||
+		got.Stats.OpenBySeverity[model.SeverityHigh] != 3 || got.Stats.New != 2 {
+		t.Fatalf("LatestRun(before r2) = %+v, want run %d with repos and stats", got, r1.ID)
 	}
 	if runs, _ := s.ListRuns(ctx, 1); len(runs) != 1 || runs[0].ID != r2.ID {
 		t.Fatalf("ListRuns(1) = %+v", runs)
@@ -248,6 +250,39 @@ func testFilter(t *testing.T, s store.Store) {
 	got, _ := s.ListFindings(ctx, store.FindingFilter{Limit: 1})
 	if len(got) != 1 || got[0].ID != crit.ID {
 		t.Fatalf("Limit 1 must return the most severe first, got %v", ids(got))
+	}
+
+	// Keyset pagination walks every finding once, in order.
+	var pages []string
+	after := ""
+	for i := 0; i < 10; i++ {
+		page, err := s.ListFindings(ctx, store.FindingFilter{Limit: 1, After: after})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		pages = append(pages, page[0].ID)
+		after = store.FindingCursor(page[0])
+	}
+	if len(pages) != 3 || pages[0] != crit.ID || pages[1] != hi.ID || pages[2] != lo.ID {
+		t.Fatalf("pagination = %v, want [crit hi lo]", pages)
+	}
+	if _, err := s.ListFindings(ctx, store.FindingFilter{After: "%%%"}); err == nil {
+		t.Fatal("invalid cursor must fail")
+	}
+
+	// Search by package substring and by alias.
+	aliased := F("o/r1", "github.com/Acme/Widget", "v1", "GO-9", model.SeverityLow)
+	aliased.Aliases = []string{"CVE-2024-0001"}
+	record(t, s, []string{"o/r1", "o/r2"}, t0.Add(2*time.Hour), hi, lo, crit, aliased)
+	for _, q := range []string{"acme/widget", "CVE-2024-0001", "GO-9"} {
+		got, err := s.ListFindings(ctx, store.FindingFilter{Query: q})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantIDs(t, "query "+q, got, aliased)
 	}
 }
 

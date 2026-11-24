@@ -1,0 +1,923 @@
+openapi: 3.1.0
+info:
+  title: Heimdall API
+  version: 1.0.0
+  description: |
+    REST API of `heimdall serve`, used by the web UI. JSON fields are snake_case.
+
+    Writes (POST/PUT/PATCH/DELETE) must send `Content-Type: application/json` and
+    `X-Heimdall-Request: 1` (CSRF guard); otherwise 403.
+    Errors use RFC 9457 `application/problem+json`.
+    Lists use keyset pagination: pass `next_cursor` back as `cursor`.
+    Secrets are write-only: no response ever contains a secret value.
+servers:
+  - url: /api/v1
+
+tags:
+  - name: dashboard
+  - name: targets
+  - name: auth-profiles
+  - name: repos
+  - name: findings
+  - name: runs
+  - name: jobs
+  - name: system
+
+paths:
+  /meta:
+    get:
+      tags: [system]
+      summary: Server capabilities for the UI
+      operationId: getMeta
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meta" }
+
+  /dashboard:
+    get:
+      tags: [dashboard]
+      operationId: getDashboard
+      parameters:
+        - { name: trend_runs, in: query, schema: { type: integer, minimum: 1, maximum: 90, default: 30 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DashboardSummary" }
+
+  /targets:
+    get:
+      tags: [targets]
+      operationId: listTargets
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Target" } }
+    post:
+      tags: [targets]
+      operationId: createTarget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Target" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+
+  /targets/preview:
+    post:
+      tags: [targets]
+      summary: List the repos a target would scan, without saving it
+      operationId: previewTarget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Repo" } }
+        "400": { $ref: "#/components/responses/Problem" }
+        "502": { $ref: "#/components/responses/Problem" }
+
+  /targets/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/IntID" }
+    get:
+      tags: [targets]
+      operationId: getTarget
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Target" }
+        "404": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [targets]
+      summary: Replace the writable fields (config-origin targets → 409 read-only)
+      operationId: updateTarget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Target" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [targets]
+      operationId: deleteTarget
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+
+  /auth-profiles:
+    get:
+      tags: [auth-profiles]
+      operationId: listAuthProfiles
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/AuthProfile" } }
+    post:
+      tags: [auth-profiles]
+      operationId: createAuthProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AuthProfileInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthProfile" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+        "503": { $ref: "#/components/responses/Problem" }
+
+  /auth-profiles/{name}:
+    parameters:
+      - { $ref: "#/components/parameters/Name" }
+    patch:
+      tags: [auth-profiles]
+      summary: Update a profile; omit `secret` to keep the current one
+      operationId: updateAuthProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AuthProfileInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthProfile" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [auth-profiles]
+      operationId: deleteAuthProfile
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+
+  /auth-profiles/{name}/test:
+    parameters:
+      - { $ref: "#/components/parameters/Name" }
+    post:
+      tags: [auth-profiles]
+      operationId: testAuthProfile
+      responses:
+        "200":
+          description: Test ran (see `ok`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionTest" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /repos:
+    get:
+      tags: [repos]
+      operationId: listRepos
+      parameters:
+        - { name: target_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: q, in: query, description: Substring of owner/name, schema: { type: string } }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/RepoRecord" } }
+                  next_cursor: { type: string }
+
+  /repos/{owner}/{name}:
+    parameters:
+      - { name: owner, in: path, required: true, schema: { type: string } }
+      - { name: name, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [repos]
+      operationId: getRepo
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RepoDetail" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /findings:
+    get:
+      tags: [findings]
+      operationId: listFindings
+      parameters:
+        - { name: repo, in: query, schema: { type: string } }
+        - { name: kind, in: query, schema: { $ref: "#/components/schemas/FindingKind" } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/FindingStatus" } }
+        - { name: min_severity, in: query, schema: { $ref: "#/components/schemas/Severity" } }
+        - { name: kev, in: query, schema: { type: boolean } }
+        - { name: new_since, in: query, schema: { type: string, format: date-time } }
+        - { name: q, in: query, description: Package name substring or exact CVE/GHSA/GO id, schema: { type: string } }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK (ordered by severity desc, repo, id)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+                  next_cursor: { type: string }
+        "400": { $ref: "#/components/responses/Problem" }
+
+  /findings/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/StringID" }
+    get:
+      tags: [findings]
+      operationId: getFinding
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FindingDetail" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /findings/{id}/suppression:
+    parameters:
+      - { $ref: "#/components/parameters/StringID" }
+    put:
+      tags: [findings]
+      operationId: suppressFinding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, expires_at]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 1000 }
+                expires_at: { type: string, format: date-time, description: In the future, at most 1 year ahead }
+      responses:
+        "204": { description: Suppressed }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [findings]
+      operationId: unsuppressFinding
+      responses:
+        "204": { description: Reopened }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /runs:
+    get:
+      tags: [runs]
+      operationId: listRuns
+      parameters:
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK (newest first)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/ScanRun" } }
+                  next_cursor: { type: string }
+
+  /runs/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/IntID" }
+    get:
+      tags: [runs]
+      operationId: getRun
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScanRun" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /runs/{id}/diff:
+    parameters:
+      - { $ref: "#/components/parameters/IntID" }
+      - { name: against, in: query, description: Run id to compare with; default = previous run, schema: { type: integer, format: int64 } }
+    get:
+      tags: [runs]
+      operationId: diffRun
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Diff" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /jobs:
+    get:
+      tags: [jobs]
+      operationId: listJobs
+      parameters:
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/JobStatus" } }
+        - { name: target_id, in: query, schema: { type: integer, format: int64 } }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK (newest first)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Job" } }
+                  next_cursor: { type: string }
+    post:
+      tags: [jobs]
+      summary: Trigger a scan (idempotent per scope)
+      description: |
+        Scope: `target_id` (optionally with `repo`), or `repo_url` + `auth_profile`
+        for an ad-hoc repo, or `{}` for every enabled target. If a job with the same
+        scope is already queued or running, it is returned with 200 instead of 201.
+      operationId: triggerJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "200":
+          description: An active job with this scope already exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /jobs/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/IntID" }
+    get:
+      tags: [jobs]
+      operationId: getJob
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /jobs/{id}/cancel:
+    parameters:
+      - { $ref: "#/components/parameters/IntID" }
+    post:
+      tags: [jobs]
+      operationId: cancelJob
+      responses:
+        "202": { description: Cancel requested }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+
+  /jobs/{id}/events:
+    parameters:
+      - { $ref: "#/components/parameters/IntID" }
+    get:
+      tags: [jobs]
+      summary: Progress events
+      description: |
+        With `Accept: text/event-stream`: Server-Sent Events. Each event has
+        `id: <event id>`, `event: progress` and `data: <JobEvent JSON>`; when the job
+        finishes an `event: done` with `data: <Job JSON>` is sent and the stream
+        closes. Reconnects resume from `Last-Event-ID`.
+        Otherwise: a JSON page of events after `after_id`.
+      operationId: listJobEvents
+      parameters:
+        - { name: after_id, in: query, schema: { type: integer, format: int64, default: 0 } }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/JobEvent" } }
+            text/event-stream:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /sources:
+    get:
+      tags: [system]
+      operationId: listSources
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/SourceStatus" } }
+
+  /notifiers:
+    get:
+      tags: [system]
+      operationId: listNotifiers
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/NotifierStatus" } }
+
+  /notifiers/{name}/test:
+    parameters:
+      - { $ref: "#/components/parameters/Name" }
+    post:
+      tags: [system]
+      operationId: testNotifier
+      responses:
+        "204": { description: Test message sent }
+        "404": { $ref: "#/components/responses/Problem" }
+        "502": { $ref: "#/components/responses/Problem" }
+
+  /audit:
+    get:
+      tags: [system]
+      operationId: listAudit
+      parameters:
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: OK (newest first)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
+                  next_cursor: { type: string }
+
+components:
+  parameters:
+    IntID: { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    StringID: { name: id, in: path, required: true, schema: { type: string } }
+    Name: { name: name, in: path, required: true, schema: { type: string } }
+    Cursor: { name: cursor, in: query, schema: { type: string } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
+
+  responses:
+    Problem:
+      description: Error
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    Problem:
+      type: object
+      required: [title, status]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        fields:
+          type: object
+          description: Field → message, for validation errors (400)
+          additionalProperties: { type: string }
+
+    Meta:
+      type: object
+      required: [version, secrets_enabled, jobs_backend]
+      properties:
+        version: { type: string }
+        secrets_enabled: { type: boolean, description: false when no master key is configured; hide secret inputs }
+        jobs_backend: { type: string, examples: [asynq, inline] }
+        providers: { type: array, items: { type: string }, examples: [[github]] }
+        auth_types: { type: array, items: { type: string }, examples: [[token, app, ssh]] }
+
+    Severity: { type: string, enum: [CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN] }
+    FindingKind: { type: string, enum: [dependency, runtime, code, secret, config] }
+    FindingStatus: { type: string, enum: [open, fixed, suppressed] }
+    BumpType: { type: string, enum: ["", patch, minor, major, no-fix-available] }
+    Origin: { type: string, enum: [config, ui] }
+    TargetKind: { type: string, enum: [org, user, repo] }
+    JobStatus: { type: string, enum: [queued, running, succeeded, failed, canceled] }
+    JobTrigger: { type: string, enum: [manual, schedule, api, mcp, cli] }
+    RunStatus: { type: string, enum: [running, succeeded, partial, failed] }
+    SupportStatus: { type: string, enum: [supported, security-only, eol-soon, eol, unknown] }
+
+    Package:
+      type: object
+      required: [ecosystem, name, version, purl]
+      properties:
+        ecosystem: { type: string, examples: [go] }
+        name: { type: string }
+        version: { type: string }
+        purl: { type: string }
+
+    RepoFilter:
+      type: object
+      properties:
+        include: { type: array, items: { type: string } }
+        exclude: { type: array, items: { type: string } }
+        topics: { type: array, items: { type: string } }
+        skip_archived: { type: boolean, default: true }
+        skip_forks: { type: boolean, default: true }
+        skip_empty: { type: boolean, default: true }
+        max_repos: { type: integer, minimum: 0 }
+
+    TargetInput:
+      type: object
+      required: [kind, auth]
+      properties:
+        kind: { $ref: "#/components/schemas/TargetKind" }
+        provider: { type: string, default: github }
+        base_url: { type: string, description: API base URL for GitHub Enterprise Server }
+        owner: { type: string, description: Org or user login (kind org/user) }
+        url: { type: string, description: "Repo URL (kind repo): https://…, git@host:owner/name.git or ssh://…" }
+        branch: { type: string, description: Empty = default branch }
+        auth: { type: string, description: Auth profile name used to read code }
+        list_auth: { type: string, description: Auth profile used to list repos; required when `auth` is ssh and kind is org/user }
+        repos: { type: array, items: { type: string }, description: Static repo names instead of listing }
+        filter: { $ref: "#/components/schemas/RepoFilter" }
+        schedule: { type: string, description: "Cron expression (UTC). Presets: '0 2 * * *' daily, '0 2 */3 * *' every 3 days, '' manual" }
+        enabled: { type: boolean, default: true }
+
+    Target:
+      allOf:
+        - $ref: "#/components/schemas/TargetInput"
+        - type: object
+          required: [id, origin, created_at, updated_at, label]
+          properties:
+            id: { type: integer, format: int64 }
+            name: { type: string, description: Repo name (kind repo) }
+            label: { type: string, examples: ["org:acme", "repo:acme/api"] }
+            origin: { $ref: "#/components/schemas/Origin" }
+            next_run_at: { type: [string, "null"], format: date-time }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    AuthProfileInput:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,62}$" }
+        type: { type: string, enum: [token, app, ssh] }
+        options:
+          type: object
+          description: Non-secret options (app_id, installation_id, known_hosts, base_url…)
+          additionalProperties: true
+        secret:
+          type: string
+          writeOnly: true
+          description: Token, GitHub App private key (PEM) or SSH private key. Omit to keep the current secret.
+        secret_kind: { type: string, enum: [token, private_key, ssh_key] }
+
+    AuthProfile:
+      type: object
+      required: [id, name, type, origin, has_secret, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        type: { type: string }
+        options: { type: object, additionalProperties: true }
+        has_secret: { type: boolean }
+        secret_fingerprint: { type: string, description: Non-reversible identifier, e.g. "1a2b3c4d…wxyz" }
+        origin: { $ref: "#/components/schemas/Origin" }
+        used_by: { type: array, items: { type: integer, format: int64 }, description: Target ids }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ConnectionTest:
+      type: object
+      required: [ok, message]
+      properties:
+        ok: { type: boolean }
+        message: { type: string }
+
+    Repo:
+      type: object
+      required: [provider, owner, name, full_name, ref]
+      properties:
+        provider: { type: string }
+        host: { type: string }
+        owner: { type: string }
+        name: { type: string }
+        full_name: { type: string }
+        html_url: { type: string }
+        default_branch: { type: string }
+        ref: { type: string }
+        private: { type: boolean }
+        archived: { type: boolean }
+        fork: { type: boolean }
+        topics: { type: array, items: { type: string } }
+
+    RepoRecord:
+      allOf:
+        - $ref: "#/components/schemas/Repo"
+        - type: object
+          required: [target_id, last_listed_at]
+          properties:
+            target_id: { type: integer, format: int64 }
+            last_listed_at: { type: string, format: date-time }
+            last_head_sha: { type: string }
+            last_scanned_at: { type: [string, "null"], format: date-time }
+            open_by_severity:
+              type: object
+              additionalProperties: { type: integer }
+
+    RuntimeStatus:
+      type: object
+      required: [name, version, origin, status]
+      properties:
+        name: { type: string, examples: [go] }
+        version: { type: string }
+        origin: { type: string, description: File that declares it }
+        via: { type: string, examples: [go directive, Dockerfile FROM] }
+        cycle: { type: string }
+        status: { $ref: "#/components/schemas/SupportStatus" }
+        eol_date: { type: [string, "null"], format: date }
+        latest_patch: { type: string }
+        latest_cycle: { type: string }
+
+    UpgradeItem:
+      type: object
+      required: [package, manifest, direct, bump, severity, advisories]
+      properties:
+        package: { $ref: "#/components/schemas/Package" }
+        manifest: { type: string }
+        direct: { type: boolean }
+        recommended: { type: string }
+        bump: { $ref: "#/components/schemas/BumpType" }
+        severity: { $ref: "#/components/schemas/Severity" }
+        advisories: { type: array, items: { type: string } }
+        advice: { type: string, examples: ["go get golang.org/x/net@v0.23.0"] }
+
+    RepoDetail:
+      type: object
+      required: [repo, findings, runtimes, upgrade_plan]
+      properties:
+        repo: { $ref: "#/components/schemas/RepoRecord" }
+        findings: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+        runtimes: { type: array, items: { $ref: "#/components/schemas/RuntimeStatus" } }
+        upgrade_plan: { type: array, items: { $ref: "#/components/schemas/UpgradeItem" } }
+
+    Finding:
+      type: object
+      required: [id, kind, repo, manifest_path, severity, status, first_seen, last_seen, sources, verified]
+      properties:
+        id: { type: string }
+        kind: { $ref: "#/components/schemas/FindingKind" }
+        repo: { type: string }
+        manifest_path: { type: string }
+        package: { $ref: "#/components/schemas/Package" }
+        direct: { type: boolean }
+        scope: { type: string, enum: [prod, dev, optional, ""] }
+        parents: { type: array, items: { type: string } }
+        advisory_id: { type: string }
+        aliases: { type: array, items: { type: string } }
+        summary: { type: string }
+        severity: { $ref: "#/components/schemas/Severity" }
+        cvss_vector: { type: string }
+        cvss_score: { type: number }
+        epss: { type: number }
+        epss_percentile: { type: number }
+        in_kev: { type: boolean }
+        malicious: { type: boolean }
+        verified: { type: boolean, description: false when only an AI agent reported it }
+        references: { type: array, items: { type: string } }
+        fixed_versions: { type: array, items: { type: string } }
+        recommended_version: { type: string }
+        bump: { $ref: "#/components/schemas/BumpType" }
+        advice: { type: string }
+        priority: { type: number }
+        runtime: { $ref: "#/components/schemas/RuntimeStatus" }
+        sources: { type: array, items: { type: string } }
+        first_seen: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/FindingStatus" }
+
+    Suppression:
+      type: object
+      required: [reason, expires_at, created_at]
+      properties:
+        reason: { type: string }
+        expires_at: { type: string, format: date-time }
+        actor: { type: string }
+        created_at: { type: string, format: date-time }
+
+    FindingDetail:
+      allOf:
+        - $ref: "#/components/schemas/Finding"
+        - type: object
+          properties:
+            suppression: { $ref: "#/components/schemas/Suppression" }
+
+    SourceHealth:
+      type: object
+      required: [name, healthy]
+      properties:
+        name: { type: string }
+        healthy: { type: boolean }
+        error: { type: string }
+        calls: { type: integer }
+        duration_ms: { type: integer }
+
+    RunStats:
+      type: object
+      properties:
+        open_by_severity: { type: object, additionalProperties: { type: integer } }
+        new: { type: integer }
+        fixed: { type: integer }
+        repos: { type: integer }
+
+    ScanRun:
+      type: object
+      required: [id, started_at, status]
+      properties:
+        id: { type: integer, format: int64 }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        status: { $ref: "#/components/schemas/RunStatus" }
+        targets: { type: array, items: { type: string } }
+        repos_scanned: { type: array, items: { type: string } }
+        repos_failed: { type: array, items: { type: string } }
+        sources: { type: array, items: { $ref: "#/components/schemas/SourceHealth" } }
+        stats: { $ref: "#/components/schemas/RunStats" }
+        error: { type: string }
+
+    Diff:
+      type: object
+      required: [from_run, to_run, new, fixed, still_open]
+      properties:
+        from_run: { type: integer, format: int64 }
+        to_run: { type: integer, format: int64 }
+        new: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+        fixed: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+        still_open: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+
+    JobRequest:
+      type: object
+      properties:
+        target_id: { type: integer, format: int64 }
+        repo: { type: string, description: "owner/name within target_id" }
+        repo_url: { type: string, description: Ad-hoc repo (requires auth_profile) }
+        branch: { type: string }
+        auth_profile: { type: string }
+        force: { type: boolean, default: false, description: Rescan even if HEAD is unchanged }
+
+    Job:
+      type: object
+      required: [id, trigger, status, attempts, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        target_id: { type: [integer, "null"], format: int64 }
+        repo: { type: string }
+        branch: { type: string }
+        auth_profile: { type: string }
+        trigger: { $ref: "#/components/schemas/JobTrigger" }
+        status: { $ref: "#/components/schemas/JobStatus" }
+        run_id: { type: [integer, "null"], format: int64 }
+        attempts: { type: integer }
+        requested_by: { type: string }
+        error: { type: string }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+
+    JobEvent:
+      type: object
+      required: [id, job_id, at, level, message]
+      properties:
+        id: { type: integer, format: int64 }
+        job_id: { type: integer, format: int64 }
+        at: { type: string, format: date-time }
+        level: { type: string, enum: [info, warn, error] }
+        repo: { type: string }
+        message: { type: string }
+
+    DashboardSummary:
+      type: object
+      required: [open_by_severity, open_kev, open_malicious, repos, trend, top_findings, eol_runtimes, unhealthy_sources, active_jobs]
+      properties:
+        open_by_severity: { type: object, additionalProperties: { type: integer } }
+        open_kev: { type: integer }
+        open_malicious: { type: integer }
+        repos: { type: integer }
+        trend: { type: array, items: { $ref: "#/components/schemas/ScanRun" }, description: Oldest first }
+        top_findings: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+        eol_runtimes:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/RuntimeStatus"
+              - type: object
+                properties:
+                  repo: { type: string }
+        unhealthy_sources: { type: array, items: { $ref: "#/components/schemas/SourceHealth" } }
+        active_jobs: { type: array, items: { $ref: "#/components/schemas/Job" } }
+        last_run: { $ref: "#/components/schemas/ScanRun" }
+
+    SourceStatus:
+      type: object
+      required: [name, kinds, healthy]
+      properties:
+        name: { type: string }
+        kinds: { type: array, items: { type: string } }
+        healthy: { type: boolean }
+        error: { type: string }
+        last_seen: { type: [string, "null"], format: date-time }
+
+    NotifierStatus:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string }
+        type: { type: string }
+
+    AuditEntry:
+      type: object
+      required: [id, at, actor, action]
+      properties:
+        id: { type: integer, format: int64 }
+        at: { type: string, format: date-time }
+        actor: { type: string }
+        action: { type: string }
+        object_type: { type: string }
+        object_id: { type: string }
+        details: { type: object, additionalProperties: true }

@@ -75,8 +75,31 @@ store:
   # Local runs without a database: { type: memory } (state is lost on exit)
 
 cache:
-  dir: ~/.cache/heimdall
+  dir: ~/.cache/heimdall               # HTTP responses of sources
   ttl: 24h
+
+# Repo content cache: git mirrors (SSH) and manifests by commit SHA (API).
+# Unchanged repos are never cloned or downloaded again.
+workspace:
+  dir: ~/.cache/heimdall/repos
+  prune_after: 720h                    # drop mirrors of repos not scanned for 30 days
+
+# Background jobs. inline = in-process (CLI, no Valkey). asynq = Valkey-backed workers.
+jobs:
+  type: asynq
+  addr_env: HEIMDALL_VALKEY_ADDR       # host:port
+  password_env: HEIMDALL_VALKEY_PASSWORD
+  concurrency: 4
+
+# `heimdall serve`: web UI + REST API. No login: keep it on localhost or behind an SSO proxy.
+server:
+  listen: 127.0.0.1:8080
+  # trusted_user_header: X-Forwarded-Email   # set by the SSO proxy, recorded in the audit log
+
+# Master key (base64, 32 bytes) that encrypts secrets entered in the web UI.
+# Without it the UI cannot store secrets; env/file auth profiles still work.
+secrets:
+  master_key_env: HEIMDALL_MASTER_KEY
 
 concurrency:
   repos: 8

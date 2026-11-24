@@ -22,7 +22,16 @@ type ScanRun struct {
 	ReposScanned []string // full names actually scanned (scope for fixed detection)
 	ReposFailed  []string
 	Sources      []SourceHealth
+	Stats        RunStats
 	Error        string
+}
+
+// RunStats summarises a finished run, for dashboard trends.
+type RunStats struct {
+	OpenBySeverity map[Severity]int
+	New            int
+	Fixed          int
+	Repos          int
 }
 
 // SourceHealth records how a source behaved during a run.

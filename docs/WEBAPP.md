@@ -1,6 +1,8 @@
 # Heimdall Web App — Thiết kế
 
-> Quyết định đã chốt: UI là **React + TypeScript SPA** nhúng vào binary Go · **không có login** (chỉ chạy nội bộ) · **nhập secret trên UI**, lưu mã hoá trong Postgres · làm **song song** với các track Phase 1.
+> Quyết định đã chốt: UI là **React + TypeScript SPA** nhúng vào binary Go · **không có login** (chỉ chạy nội bộ) · **nhập secret trên UI**, lưu mã hoá trong Postgres · background job dùng **asynq + Valkey** · cache repo trong `workspace.dir` · làm **song song** với các track Phase 1.
+>
+> Hợp đồng đã đóng băng ở Phase 0b: [`api/openapi.yaml`](../api/openapi.yaml), `internal/service` (interface), `internal/store/catalog.go` (+ `storetest.RunCatalog`), `internal/jobs` (+ `jobstest`), `internal/core.Scanner`, migration `0002_webapp.sql`.
 
 ## 1. Mục tiêu
 
@@ -26,9 +28,9 @@ heimdall worker  = chỉ worker pool, để scale ngang khi nhiều repo
  Browser (React SPA) ──HTTP/JSON + SSE──► internal/api ─┐
  AI agent ───────────────MCP──────────► internal/mcpserver ├─► internal/service ─► core pipeline ─► ports/adapters
  Terminal ───────────────────────────► internal/cli ─────┘          │
-                                                                   ├─► jobs (Postgres queue) ◄── scheduler
+                                                                   ├─► jobs (asynq + Valkey) ◄── scheduler
                                                                    └─► store (Postgres)          ▲
-                                                       worker pool ── claim job ── run pipeline ─┘
+                                                       worker pool ── nhận job ── chạy pipeline ─┘
 ```
 
 - **`internal/service`**: application services (`Targets`, `AuthProfiles`, `Scans`, `Findings`, `Schedules`). API, MCP và CLI là lớp mỏng phía trên: chỉ parse input, gọi service và trả output.
@@ -47,7 +49,9 @@ Postgres là **nguồn sự thật**. File YAML/JSON thành **bootstrap**: khi s
 | `secrets` | id, kind, ciphertext, nonce, wrapped_dek, kek_id, fingerprint, created_at, rotated_at | Không bao giờ trả plaintext qua API |
 | `auth_profiles` | id, name (unique), type, options jsonb (không chứa secret), secret_id → secrets, origin | `options` chỉ giữ thứ không nhạy cảm (app_id, known_hosts…) |
 | `targets` | id, kind, provider, base_url, owner, name, url, branch, auth_profile_id, list_auth_profile_id, filters jsonb, schedule, next_run_at, enabled, origin, created_at, updated_at | Index `(enabled, next_run_at)` cho scheduler |
-| `scan_jobs` | id, target_id (null = tất cả), repo (null = cả target), trigger (`manual`/`schedule`/`api`/`mcp`/`cli`), status (`queued`/`running`/`succeeded`/`failed`/`canceled`), run_id, attempts, lease_owner, lease_until, requested_by, created_at, started_at, finished_at, error | **Unique partial index** `(coalesce(target_id,0), coalesce(repo,''))` WHERE status IN ('queued','running') → bấm trigger 2 lần không tạo 2 job |
+| `scan_jobs` | id, target_id (null = tất cả), repo ('' = cả target), branch, auth_profile, trigger, status (`queued`/`running`/`succeeded`/`failed`/`canceled`), run_id, attempts, requested_by, error, created_at, started_at, finished_at | **Unique partial index** `(coalesce(target_id,0), repo)` WHERE status IN ('queued','running') → bấm trigger 2 lần không tạo 2 job |
+| `repos` | full_name, target_id, data (model.Repo), last_listed_at, last_head_sha, last_scanned_at | Cache danh sách repo (§5b) |
+| `suppressions` | finding_id, reason (bắt buộc), expires_at (bắt buộc), actor, created_at | Hết hạn thì mở lại finding |
 | `job_events` | id, job_id, at, level, repo, message | Tiến độ cho SSE; dọn theo retention |
 | `audit_log` | id, at, actor, action, object_type, object_id, details jsonb | Mọi thao tác ghi (UI, API, MCP) |
 
@@ -60,14 +64,42 @@ Postgres là **nguồn sự thật**. File YAML/JSON thành **bootstrap**: khi s
 - Mở rộng: thêm `secret.Resolver` vào `plugin.Deps`. Auth plugin đọc secret qua `token_env` / `token_file` / **`token_ref`** (id trong bảng `secrets`). Sau này thêm Vault/AWS Secrets Manager chỉ cần thêm một resolver.
 - Thiếu master key → `serve` vẫn chạy, nhưng tính năng nhập secret trên UI bị tắt và báo rõ trên UI.
 
-## 5. Job queue & scheduler
+## 5. Job queue & scheduler (asynq + Valkey)
 
-- Queue nằm trên Postgres: `SELECT … FOR UPDATE SKIP LOCKED`, không cần Redis hay RabbitMQ.
-- **Lease + heartbeat**: worker gia hạn `lease_until` mỗi 30 giây. Hết lease (worker chết) thì job quay lại `queued`, `attempts++`. Tối đa 3 lần, quá thì `failed`.
-- **Huỷ**: API đặt `status = canceled`. Worker kiểm tra khi heartbeat và cancel `context`.
-- **Scheduler**: chỉ replica giữ advisory lock mới chạy. Mỗi phút lấy các target có `enabled AND next_run_at <= now()`, tạo job (an toàn khi lặp nhờ unique index), rồi tính `next_run_at` mới.
-- **Lịch**: biểu thức cron (`0 2 * * *`) với preset trên UI: *Hằng ngày 2h*, *3 ngày/lần*, *Thủ công*. Dùng `robfig/cron/v3` (nhỏ, chỉ dùng parser).
-- Scan tăng dần: repo có HEAD SHA và dữ liệu source không đổi thì bỏ qua (đã có `repo_states`).
+- Port `internal/jobs` (`Backend`: Enqueue / Cancel / Run). Adapter:
+  - **`jobs/asynq`** cho production: [asynq](https://github.com/hibiken/asynq) chạy trên **Valkey** (tương thích giao thức Redis).
+  - **`jobs/inline`** (in-process) cho CLI và test. Đây là bản tham chiếu, đã pass `jobstest`.
+- **Queue chỉ chở job ID.** Bản ghi job (phạm vi, trạng thái, tiến độ, lỗi) nằm trong `scan_jobs`/`job_events` ở Postgres. Vì vậy UI và audit không phụ thuộc thời gian lưu của Valkey, và đổi backend không mất lịch sử.
+- **Không trùng job**:
+  - Postgres có unique index cho job đang chạy theo phạm vi (target, repo), nên bấm "Scan" hai lần chỉ tạo một job.
+  - asynq dùng `TaskID = job-<id>`, nên enqueue lại cùng ID là no-op.
+- **Retry / crash**: asynq tự retry khi worker chết (lease), tối đa 3 lần. Handler luôn đọc lại job và bỏ qua nếu job đã xong hoặc đã huỷ (idempotent).
+- **Huỷ**: API đặt `status = canceled` rồi gọi `Backend.Cancel`. Với asynq đó là `Inspector.CancelProcessing`, ctx của handler bị huỷ; job còn trong hàng đợi thì bị xoá.
+- **Scheduler**: không dùng `asynq.Scheduler`, vì lịch nằm trong DB và sửa được từ UI.
+  - Mỗi phút: `Catalog.DueTargets(now)` → `Jobs.Trigger(trigger=schedule)` → tính `next_run_at` mới bằng parser cron (`robfig/cron/v3`).
+  - Chạy nhiều replica vẫn an toàn nhờ chống trùng ở `CreateJob`. Chỉ một replica làm việc này nhờ lock Valkey (`SET NX PX`), các replica khác bỏ qua.
+- **Hết hạn suppress**: cùng vòng lặp scheduler gọi `ExpiredSuppressions(now)` để mở lại finding và ghi audit.
+- **Giám sát**: có thể bật Asynqmon (UI riêng của asynq) sau reverse proxy. Heimdall UI đã có trang Jobs riêng.
+- Config:
+
+  ```yaml
+  jobs:
+    type: asynq                     # inline (mặc định, không cần Valkey) | asynq
+    addr_env: HEIMDALL_VALKEY_ADDR  # host:port; mật khẩu qua password_env
+    password_env: HEIMDALL_VALKEY_PASSWORD
+    db: 0
+    concurrency: 4
+    queue: heimdall
+  ```
+
+## 5b. Cache repo (không clone lại liên tục)
+
+- `workspace.dir` (mặc định `~/.cache/heimdall/repos`) là thư mục cache nội dung repo giữa các lần scan:
+  - **SSH / checkout**: mỗi repo giữ một **bare mirror** (`<dir>/<host>/<owner>/<name>.git`). Lần sau chỉ `git fetch --depth 1 <branch>` phần mới rồi sparse-checkout manifest, không clone lại.
+  - **Token / App (API)**: file manifest tải về được cache theo **commit SHA** (`<dir>/<host>/<owner>/<name>/<sha>/…`). SHA không đổi thì đọc từ đĩa, không gọi API.
+  - `workspace.prune_after` (mặc định 30 ngày) xoá mirror của repo lâu không scan.
+- Danh sách repo của từng target được cache trong bảng `repos` (Catalog `UpsertRepos`/`ListRepos`). Trang Repos đọc bảng này, không gọi GitHub mỗi lần mở trang. Danh sách được làm mới ở mỗi lần scan target hoặc khi bấm "Refresh".
+- Scan tăng dần: HEAD SHA (`MarkRepoScanned`) và dữ liệu source không đổi thì bỏ qua repo, trừ khi `force`.
 
 ## 6. REST API (`/api/v1`, đặc tả tại `api/openapi.yaml`)
 
@@ -124,8 +156,10 @@ Không có login nghĩa là ai vào được mạng nội bộ đều thao tác 
 ```
 api/openapi.yaml                 # hợp đồng REST
 internal/service/                # application services (dùng chung CLI/API/MCP)
-internal/jobs/                   # port Queue + postgres impl, worker pool, scheduler
-internal/secretstore/            # envelope encryption, Resolver
+internal/core/                   # core.Scanner (pipeline) — implementation in Phase 2
+internal/jobs/                   # port Backend + inline (reference) + asynq (Valkey) adapters
+internal/service/                # + scheduler loop (due targets, expired suppressions)
+internal/secret/                 # envelope encryption (KeyRing, Seal/Open/Rewrap), Resolver chain
 internal/api/                    # HTTP handlers, middleware (CSRF, audit, problem+json), SSE
 internal/webui/                  # go:embed web/dist + SPA fallback
 web/                             # React app (Vite, TS)
@@ -136,6 +170,6 @@ internal/store/postgres/migrations/0002_webapp.sql
 
 - Service: unit test với `memstore` + fake queue.
 - API: `httptest` + kiểm response khớp OpenAPI (kin-openapi validator).
-- Jobs: test Postgres thật cho claim/lease/hết lease/huỷ/unique index (`-tags` hoặc `HEIMDALL_TEST_PG_DSN`).
+- Jobs: `jobstest.Run` cho mọi backend; asynq chạy với Valkey thật khi có `HEIMDALL_TEST_VALKEY_ADDR`. Unique index của job: `storetest.RunCatalog` trên Postgres.
 - Secretstore: mã hoá/giải mã, sai KEK thì lỗi, xoay KEK.
 - UI: Vitest + Testing Library cho component; MSW mock API theo OpenAPI để UI làm song song khi backend chưa xong; Playwright e2e cho các luồng chính (thêm target → preview → scan → xem finding).

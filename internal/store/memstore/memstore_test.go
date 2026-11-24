@@ -10,3 +10,7 @@ import (
 func TestContract(t *testing.T) {
 	storetest.Run(t, func(*testing.T) store.Store { return New() })
 }
+
+func TestCatalogContract(t *testing.T) {
+	storetest.RunCatalog(t, func(*testing.T) store.Store { return New() })
+}

@@ -3,6 +3,7 @@
 package archtest
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -16,7 +17,7 @@ const module = "github.com/hungnm98/heimdall-cve/"
 // ports have adapters in sub-packages; "<port>test" sub-packages are contract kits.
 var ports = map[string]bool{
 	"auth": true, "vcs": true, "ecosystem": true, "runtime": true,
-	"source": true, "store": true, "notify": true, "report": true,
+	"source": true, "store": true, "notify": true, "report": true, "jobs": true,
 }
 
 // foundation packages sit below the ports.
@@ -25,6 +26,11 @@ var foundation = map[string]bool{
 	"secret": true, "httpx": true, "gitx": true, "config": true,
 }
 
+// entry points other than the CLI: HTTP API, MCP server, embedded web UI.
+var entries = map[string]bool{"api": true, "mcpserver": true, "webui": true}
+
+// Layers, lowest first. A package may import its own layer or lower ones,
+// never a higher one; adapters are further restricted (see violation).
 type layer int
 
 const (
@@ -33,10 +39,14 @@ const (
 	layerPort // port packages and their contract kits
 	layerAdapter
 	layerCore
+	layerService
+	layerEntry
 	layerApp
 	layerCLI
 	layerOther
 )
+
+var layerNames = []string{"model", "foundation", "port", "adapter", "core", "service", "entry", "app", "cli", "other"}
 
 // classify returns the layer of an internal package path like "source/osv"
 // and, for adapters, the adapter root ("source/osv").
@@ -53,9 +63,13 @@ func classify(pkg string) (layer, string) {
 		return layerAdapter, parts[0] + "/" + parts[1]
 	case parts[0] == "core":
 		return layerCore, ""
+	case parts[0] == "service":
+		return layerService, ""
+	case entries[parts[0]]:
+		return layerEntry, ""
 	case parts[0] == "app":
 		return layerApp, ""
-	case parts[0] == "cli", parts[0] == "mcpserver":
+	case parts[0] == "cli":
 		return layerCLI, ""
 	}
 	return layerOther, ""
@@ -104,19 +118,15 @@ func violation(from layer, fromAdapter string, to layer, toAdapter string) strin
 	switch {
 	case from == layerModel:
 		return "model must not import internal packages"
-	case to == layerApp || to == layerCLI:
-		if from != layerCLI {
-			return "only cli may import app/cli"
-		}
+	case from == layerOther || to == layerOther:
+		return "package is not classified: add it to archtest"
 	case to == layerAdapter:
 		if from == layerApp || (from == layerAdapter && fromAdapter == toAdapter) {
 			return ""
 		}
 		return "adapters may only be imported by internal/app (plugins.go)"
-	case from == layerFoundation && to >= layerPort:
-		return "foundation packages must not import ports or above"
-	case (from == layerPort || from == layerAdapter) && to == layerCore:
-		return "ports and adapters must not import core"
+	case to > from:
+		return fmt.Sprintf("%s must not import the higher %s layer", layerNames[from], layerNames[to])
 	}
 	return ""
 }
@@ -136,13 +146,28 @@ func TestViolationRules(t *testing.T) {
 		{"core", "source", false},
 		{"core", "source/osv", true},
 		{"core", "store/memstore", true},
+		{"core", "service", true},
+		{"service", "core", false},
+		{"service", "store", false},
+		{"service", "jobs", false},
+		{"service", "jobs/asynq", true},
+		{"service", "api", true},
+		{"api", "service", false},
+		{"api", "app", true},
+		{"api", "store/postgres", true},
+		{"mcpserver", "service", false},
 		{"app", "source/osv", false},
+		{"app", "api", false},
 		{"cli", "app", false},
+		{"cli", "api", false},
 		{"cli", "source/osv", true},
 		{"source", "app", true},
 		{"httpx", "source", true},
 		{"store/storetest", "store", false},
 		{"source/osv", "core", true},
+		{"jobs/asynq", "jobs", false},
+		{"jobs/asynq", "service", true},
+		{"mystery", "model", true},
 	}
 	for _, c := range cases {
 		fl, fa := classify(c.from)

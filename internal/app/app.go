@@ -21,6 +21,7 @@ import (
 	"github.com/hungnm98/heimdall-cve/internal/registry"
 	"github.com/hungnm98/heimdall-cve/internal/report"
 	"github.com/hungnm98/heimdall-cve/internal/runtime"
+	"github.com/hungnm98/heimdall-cve/internal/secret"
 	"github.com/hungnm98/heimdall-cve/internal/source"
 	"github.com/hungnm98/heimdall-cve/internal/store"
 	"github.com/hungnm98/heimdall-cve/internal/vcs"
@@ -159,11 +160,15 @@ func newDeps(cfg *config.Config, logger *slog.Logger) (plugin.Deps, error) {
 		return plugin.Deps{}, err
 	}
 	return plugin.Deps{
-		Logger:   logger,
-		HTTP:     httpx.New(httpx.Options{PerHost: cfg.Concurrency.HTTPPerHost, Logger: logger}),
-		Cache:    cache,
-		Git:      gitx.Runner{},
-		CacheDir: cfg.Cache.Dir,
+		Logger:       logger,
+		HTTP:         httpx.New(httpx.Options{PerHost: cfg.Concurrency.HTTPPerHost, Logger: logger}),
+		Cache:        cache,
+		Git:          gitx.Runner{},
+		CacheDir:     cfg.Cache.Dir,
+		WorkspaceDir: cfg.Workspace.Dir,
+		// The encrypted store resolver is plugged in by `serve`/`worker`
+		// once the master key and DB are available.
+		Secrets: secret.Chain{},
 	}, nil
 }
 

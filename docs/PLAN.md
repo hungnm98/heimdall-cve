@@ -114,20 +114,21 @@ cmd/heimdall ──► internal/app (wiring) ──► internal/core (pipeline, 
 **Phase 0 — Contracts (làm tuần tự, 1 agent, phải merge trước):**
 `go.mod` (`go 1.26`), layout thư mục, `internal/model`, mọi interface (`vcs.Provider`, `ecosystem.Ecosystem`, `source.VulnSource`, `source.RuntimeSource`, `store.Store`, `notify.Notifier`), `internal/registry`, `internal/config` (YAML/JSON + targets + auth profiles), CLI skeleton (cobra), `internal/app` wiring, `internal/httpx`, `internal/gitx`, contract test kit cho từng port, `internal/archtest` (kiểm tra dependency rule) + golangci-lint, `docs/ARCHITECTURE.md` + `docs/PLUGINS.md` (§3.5). Sau Phase 0 interface **đóng băng**.
 
-**Phase 0b — Contracts cho web (1 agent, merge trước Phase 1):** `internal/service` (interface + memstore-backed impl), port `internal/jobs` (Queue), `secret.Resolver` trong `plugin.Deps`, migration `0002_webapp.sql`, `api/openapi.yaml` bản đầu, mở rộng `archtest` cho `service`/`api`/`mcpserver`. Chi tiết: [WEBAPP.md](WEBAPP.md).
+**Phase 0b — Contracts cho web (✅ xong):** `internal/service` (interface), `store.Catalog` (+ memstore, `storetest.RunCatalog`), finding search + keyset cursor, suppressions, run stats, port `internal/jobs` (+ `inline`, `jobstest`), `core.Scanner`, `secret.Resolver` + envelope encryption, `workspace.dir`, migration `0002_webapp.sql`, `api/openapi.yaml`, archtest theo layer. Chi tiết: [WEBAPP.md](WEBAPP.md).
 
-**Phase 1 — 6 agent song song, mỗi agent 1 worktree/branch, không đụng file của nhau:**
+**Phase 1 — 7 agent song song, mỗi agent 1 worktree/branch, chỉ sửa package của mình** (ngoại lệ: thêm 1 dòng import vào `internal/app/plugins.go`, thêm dependency vào `go.mod`):
 
 | Track | Package | Nội dung | Done khi |
 |---|---|---|---|
-| **A. VCS GitHub** | `internal/vcs/github`, `internal/auth` | token + App (JWT RS256, auto-discover installation, refresh token) + SSH (bare mirror, sparse checkout); target org/user/repo URL; filters; GHES | test `httptest` + test SSH với repo local; `heimdall repos` chạy được |
-| **B. Go ecosystem + runtime** | `internal/ecosystem/gomod`, `internal/runtime` | go.mod/go.work (require/indirect/replace/exclude/pseudo/+incompatible/private), runtime từ go directive, toolchain, `.go-version`, `.tool-versions`, Dockerfile `FROM golang`, CI `setup-go`; cờ inconsistency | fixture tests; `scan --dry-run` in inventory |
-| **C. Sources + dedup + recommend** | `internal/source/osv`, `internal/source/endoflife`, `internal/recommend`, `internal/core/dedup` | OSV querybatch (≤1000, next_page_token, cache), stdlib/toolchain, endoflife go; dedup union-find; recommend | contract test với recorded response, golden test |
-| **D. Report + Slack** | `internal/report`, `internal/notify/slackwebhook` | md/json report (store Postgres đã xong ở Phase 0); Slack webhook (Block Kit, chỉ diff, SLA) | golden test report + Slack payload |
-| **E. Web backend** | `internal/api`, `internal/jobs/postgres`, `internal/jobs` (worker, scheduler), `internal/secretstore`, `internal/webui`, lệnh `serve`/`worker` | REST theo OpenAPI, SSE, CSRF/audit middleware, job queue SKIP LOCKED + lease, scheduler leader-lock, envelope encryption | test API khớp OpenAPI; test queue/scheduler trên Postgres thật |
-| **F. Web UI** | `web/` | React + TS: Dashboard, Findings, Repo detail, Targets (preview), Auth profiles, Scans/Jobs (log SSE), Settings; mock API bằng MSW theo OpenAPI | Vitest + Playwright e2e trên luồng thêm target → scan → xem finding |
+| **A. VCS GitHub + auth** | `internal/vcs/github`, `internal/auth/{token,githubapp,ssh}` | token + App (JWT RS256, auto-discover installation, refresh) + SSH (bare mirror trong `workspace.dir`, fetch tăng dần, sparse checkout); manifest cache theo SHA; org/user/repo URL; filters; GHES | `vcstest.Run` với `httptest` + repo git local |
+| **B. Go ecosystem + runtime** | `internal/ecosystem/gomod`, `internal/runtime/golang` | go.mod/go.work qua `x/mod/modfile` (indirect/replace/exclude/pseudo/+incompatible/private); runtime: go directive, toolchain, `.go-version`, `.tool-versions`, Dockerfile, CI `setup-go` | `ecosystemtest.Run`, `runtimetest.Run` |
+| **C. Sources + dedup + recommend** | `internal/source/{osv,endoflife}`, `internal/core/dedup`, `internal/core/recommend` | OSV querybatch (≤1000, pagination, cache), stdlib/toolchain; endoflife go; dedup union-find theo alias; recommend fix version + bump | `sourcetest.RunVuln/RunRuntime` với recorded response, unit test |
+| **D. Report + Slack** | `internal/report/{markdown,json}`, `internal/notify/slackwebhook` | md/json report; Slack Incoming Webhook (Block Kit) | `reporttest.Run`, `notifytest.Run` + golden |
+| **E1. Service + REST API** | `internal/service` (impl), `internal/api`, `internal/webui`, lệnh `serve` | implement các service trên Store+Catalog+jobs+core.Scanner (fake), handler theo OpenAPI, SSE, CSRF/audit/problem+json, embed `web/dist` | test service với memstore; test API khớp OpenAPI |
+| **E2. Postgres catalog + asynq + scheduler** | `internal/store/postgres` (Catalog), `internal/jobs/asynq`, `internal/service/scheduler*.go`, lệnh `worker` | Catalog trên Postgres (migration 0002), asynq backend trên Valkey, scheduler (cron, lock Valkey, hết hạn suppress), encrypted secret resolver | `storetest.RunCatalog` trên Postgres thật, `jobstest.Run` trên Valkey thật |
+| **F. Web UI** | `web/` | React + TS (Vite, TanStack Query/Router/Table, shadcn/ui + Tailwind, Recharts), types sinh từ OpenAPI, mock bằng MSW; 9 trang theo WEBAPP.md §7 | `npm run build` ra `web/dist`; Vitest + Playwright trên mock |
 
-**Phase 2 — Integration (1 agent):** `internal/core` pipeline nối A–F (worker gọi pipeline, UI chạy trên API thật), `heimdall scan`, exit code `--fail-on`, e2e test với fixture repo + một lần chạy thật read-only lên org remitano.
+**Phase 2 — Integration (1 agent):** `internal/core` pipeline (implement `core.Scanner`) nối A–F (worker gọi pipeline, UI chạy trên API thật), `heimdall scan`, exit code `--fail-on`, e2e test với fixture repo + một lần chạy thật read-only lên org remitano.
 
 **Phase 3 — MCP + AI agent (1 agent):** xem §6.
 

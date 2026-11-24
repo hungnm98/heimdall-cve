@@ -34,6 +34,30 @@ type Config struct {
 	Store          Plugin            `mapstructure:"store"`
 	Cache          CacheConfig       `mapstructure:"cache"`
 	Concurrency    Concurrency       `mapstructure:"concurrency"`
+	Workspace      Workspace         `mapstructure:"workspace"`
+	Server         Server            `mapstructure:"server"`
+	Jobs           Plugin            `mapstructure:"jobs"` // queue backend: inline | asynq
+	Secrets        SecretsConfig     `mapstructure:"secrets"`
+}
+
+// Workspace is where repo content is cached between scans: git mirrors (SSH
+// mode, checkouts) and manifests fetched through the API, keyed by commit SHA.
+// A repo whose HEAD did not move is never cloned or downloaded again.
+type Workspace struct {
+	Dir        string        `mapstructure:"dir"`
+	PruneAfter time.Duration `mapstructure:"prune_after"` // drop mirrors of repos not scanned for this long
+}
+
+// Server configures `heimdall serve`.
+type Server struct {
+	Listen            string `mapstructure:"listen"`
+	TrustedUserHeader string `mapstructure:"trusted_user_header"` // e.g. X-Forwarded-Email, set by an SSO proxy; used for audit
+}
+
+// SecretsConfig locates the master key (KEK) that encrypts secrets entered in the UI.
+type SecretsConfig struct {
+	MasterKeyEnv  string `mapstructure:"master_key_env"`
+	MasterKeyFile string `mapstructure:"master_key_file"`
 }
 
 // Plugin is a config block that selects a plugin by type and carries its own
@@ -122,6 +146,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("cache.ttl", "24h")
 	v.SetDefault("concurrency.repos", 8)
 	v.SetDefault("concurrency.http_per_host", 4)
+	v.SetDefault("workspace.dir", "~/.cache/heimdall/repos")
+	v.SetDefault("workspace.prune_after", "720h")
+	v.SetDefault("server.listen", "127.0.0.1:8080")
+	v.SetDefault("jobs.type", "inline")
+	v.SetDefault("secrets.master_key_env", "HEIMDALL_MASTER_KEY")
 }
 
 // Load reads a config file (.yaml, .yml or .json). An empty path searches
@@ -154,6 +183,7 @@ func Load(file string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s: %w", v.ConfigFileUsed(), err)
 	}
 	c.Cache.Dir = secret.ExpandHome(c.Cache.Dir)
+	c.Workspace.Dir = secret.ExpandHome(c.Workspace.Dir)
 	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config %s: %w", v.ConfigFileUsed(), err)
 	}
@@ -169,9 +199,6 @@ func (c *Config) Validate() error {
 		if p.Type == "" {
 			bad("auth_profiles.%s: type is required (token | app | ssh)", name)
 		}
-	}
-	if len(c.Targets) == 0 {
-		bad("targets: at least one target is required")
 	}
 	for i, t := range c.Targets {
 		where := fmt.Sprintf("targets[%d]", i)
@@ -216,6 +243,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Cache.TTL <= 0 {
 		bad("cache.ttl must be > 0")
+	}
+	if c.Workspace.Dir == "" || c.Workspace.PruneAfter <= 0 {
+		bad("workspace.dir and workspace.prune_after are required")
 	}
 	if c.Concurrency.Repos <= 0 || c.Concurrency.HTTPPerHost <= 0 {
 		bad("concurrency values must be > 0")
@@ -288,7 +318,9 @@ func (c *Config) Summary() string {
 			fmt.Fprintf(&b, "  - %s (type %s, enabled %v)\n", n, p.TypeOr(n), p.IsEnabled())
 		}
 	}
-	fmt.Fprintf(&b, "store: %s\ncache: %s (ttl %s)\n", c.Store.Type, filepath.Clean(c.Cache.Dir), c.Cache.TTL)
+	fmt.Fprintf(&b, "store: %s\ncache: %s (ttl %s)\nworkspace: %s (prune after %s)\njobs: %s\nserver: %s\n",
+		c.Store.Type, filepath.Clean(c.Cache.Dir), c.Cache.TTL, filepath.Clean(c.Workspace.Dir), c.Workspace.PruneAfter,
+		c.Jobs.Type, c.Server.Listen)
 	return b.String()
 }
 

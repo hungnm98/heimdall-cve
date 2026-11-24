@@ -9,6 +9,7 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/hungnm98/heimdall-cve/internal/gitx"
 	"github.com/hungnm98/heimdall-cve/internal/httpx"
+	"github.com/hungnm98/heimdall-cve/internal/secret"
 )
 
 // Config is a plugin's raw config block. Core never interprets it; the plugin
@@ -53,5 +54,10 @@ type Deps struct {
 	HTTP     *httpx.Client
 	Cache    *httpx.Cache // may be nil (caching disabled)
 	Git      gitx.Runner
-	CacheDir string // for plugins that keep their own files (git mirrors, offline DBs)
+	CacheDir string // for plugins that keep their own files (offline DBs...)
+	// WorkspaceDir caches repo content between scans (git mirrors, manifests by
+	// commit SHA) so unchanged repos are never cloned or downloaded again.
+	WorkspaceDir string
+	// Secrets resolves every secret reference (env, file, encrypted store id).
+	Secrets secret.Resolver
 }

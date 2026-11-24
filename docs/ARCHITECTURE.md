@@ -22,17 +22,20 @@ cmd/heimdall ─► internal/cli ─► internal/app (composition root, plugins.
                  config · httpx · gitx
 ```
 
+Layers, lowest first: `model` → foundation → ports (+ contract kits) → adapters → `core` →
+`service` → entries (`api`, `mcpserver`, `webui`) → `app` → `cli`.
+
 Rules (enforced by `internal/archtest`, which runs with `go test ./...`):
 
-| From | May import |
-|---|---|
-| `model` | nothing internal |
-| foundation | `model` and other foundation packages |
-| port, contract kit | foundation, other ports |
-| adapter `internal/<port>/<name>` | foundation, ports, its own sub-packages; **never another adapter** |
-| `core` | foundation, ports; **never adapters** |
-| `app` | anything except `cli` |
-| `cli` | `app`, core, ports; **never adapters** |
+- A package may import its own layer or lower layers, **never a higher one**.
+- `model` imports nothing internal.
+- Adapters (`internal/<port>/<name>`, e.g. `source/osv`, `jobs/asynq`) may only be imported by
+  `internal/app` (through `plugins.go`); an adapter never imports another adapter, core or service.
+- Every internal package must belong to a layer (unclassified packages fail the test).
+
+Ports: `auth`, `vcs`, `ecosystem`, `runtime`, `source`, `store` (+ optional `store.Catalog`),
+`notify`, `report`, `jobs`. `core.Scanner` is the pipeline entry point; `service` is the
+application layer shared by the REST API, MCP and CLI (see [WEBAPP.md](WEBAPP.md)).
 
 ## Plugin mechanics
 
