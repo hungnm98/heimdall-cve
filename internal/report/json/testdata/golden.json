@@ -1,0 +1,175 @@
+{
+  "generated_at": "2026-01-02T03:04:05Z",
+  "run": {
+    "id": 7,
+    "started_at": "2026-01-02T03:04:05Z",
+    "finished_at": "2026-01-02T03:05:35Z",
+    "status": "succeeded",
+    "targets": [],
+    "repos_scanned": [
+      "acme/api"
+    ],
+    "repos_failed": [],
+    "sources": [
+      {
+        "name": "osv",
+        "healthy": true,
+        "calls": 1,
+        "duration_ms": 0
+      }
+    ],
+    "stats": {
+      "open_by_severity": {},
+      "new": 0,
+      "fixed": 0,
+      "repos": 0
+    }
+  },
+  "repos": [
+    {
+      "repo": {
+        "provider": "github",
+        "owner": "acme",
+        "name": "api",
+        "full_name": "acme/api",
+        "html_url": "https://github.com/acme/api",
+        "ref": "main",
+        "private": false,
+        "archived": false,
+        "fork": false,
+        "topics": []
+      },
+      "head_sha": "0123456789abcdef",
+      "findings": [
+        {
+          "id": "f1",
+          "kind": "dependency",
+          "provider": "github",
+          "repo": "acme/api",
+          "manifest_path": "go.mod",
+          "package": {
+            "ecosystem": "go",
+            "name": "golang.org/x/net",
+            "version": "v0.20.0",
+            "purl": "pkg:golang/golang.org/x/net@v0.20.0"
+          },
+          "direct": true,
+          "scope": "prod",
+          "parents": [],
+          "advisory_id": "GO-2024-2687",
+          "aliases": [
+            "CVE-2023-45288",
+            "GHSA-4v7x-pqxf-cx7m"
+          ],
+          "summary": "HTTP/2 CONTINUATION flood",
+          "severity": "HIGH",
+          "cvss_score": 7.5,
+          "epss": 0,
+          "epss_percentile": 0,
+          "in_kev": false,
+          "malicious": false,
+          "verified": true,
+          "references": [],
+          "fixed_versions": [
+            "v0.23.0"
+          ],
+          "recommended_version": "v0.23.0",
+          "bump": "minor",
+          "advice": "go get golang.org/x/net@v0.23.0",
+          "priority": 0,
+          "sources": [
+            "osv"
+          ],
+          "first_seen": "2026-01-02T03:04:05Z",
+          "last_seen": "2026-01-02T03:04:05Z",
+          "status": "open"
+        }
+      ],
+      "runtimes": [
+        {
+          "name": "go",
+          "version": "1.24",
+          "origin": "go.mod",
+          "via": "go directive",
+          "cycle": "1.24",
+          "status": "eol",
+          "eol_date": "2026-02-11",
+          "latest_patch": "1.24.13",
+          "latest_cycle": "1.26",
+          "source": "endoflife"
+        }
+      ],
+      "upgrade_plan": [
+        {
+          "package": {
+            "ecosystem": "go",
+            "name": "golang.org/x/net",
+            "version": "v0.20.0",
+            "purl": "pkg:golang/golang.org/x/net@v0.20.0"
+          },
+          "manifest": "go.mod",
+          "direct": true,
+          "recommended": "v0.23.0",
+          "bump": "minor",
+          "severity": "HIGH",
+          "advisories": [
+            "GO-2024-2687"
+          ],
+          "advice": "go get golang.org/x/net@v0.23.0"
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "diff": {
+    "from_run": 6,
+    "to_run": 7,
+    "new": [
+      {
+        "id": "f1",
+        "kind": "dependency",
+        "provider": "github",
+        "repo": "acme/api",
+        "manifest_path": "go.mod",
+        "package": {
+          "ecosystem": "go",
+          "name": "golang.org/x/net",
+          "version": "v0.20.0",
+          "purl": "pkg:golang/golang.org/x/net@v0.20.0"
+        },
+        "direct": true,
+        "scope": "prod",
+        "parents": [],
+        "advisory_id": "GO-2024-2687",
+        "aliases": [
+          "CVE-2023-45288",
+          "GHSA-4v7x-pqxf-cx7m"
+        ],
+        "summary": "HTTP/2 CONTINUATION flood",
+        "severity": "HIGH",
+        "cvss_score": 7.5,
+        "epss": 0,
+        "epss_percentile": 0,
+        "in_kev": false,
+        "malicious": false,
+        "verified": true,
+        "references": [],
+        "fixed_versions": [
+          "v0.23.0"
+        ],
+        "recommended_version": "v0.23.0",
+        "bump": "minor",
+        "advice": "go get golang.org/x/net@v0.23.0",
+        "priority": 0,
+        "sources": [
+          "osv"
+        ],
+        "first_seen": "2026-01-02T03:04:05Z",
+        "last_seen": "2026-01-02T03:04:05Z",
+        "status": "open"
+      }
+    ],
+    "fixed": [],
+    "still_open": []
+  }
+}
