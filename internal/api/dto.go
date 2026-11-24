@@ -215,17 +215,22 @@ func toRepo(r model.Repo) repoDTO {
 
 type repoRecordDTO struct {
 	repoDTO
-	TargetID      int64   `json:"target_id"`
-	LastListedAt  string  `json:"last_listed_at"`
-	LastHeadSHA   string  `json:"last_head_sha,omitempty"`
-	LastScannedAt *string `json:"last_scanned_at"`
+	TargetID       int64          `json:"target_id"`
+	LastListedAt   string         `json:"last_listed_at"`
+	LastHeadSHA    string         `json:"last_head_sha,omitempty"`
+	LastScannedAt  *string        `json:"last_scanned_at"`
+	OpenBySeverity map[string]int `json:"open_by_severity,omitempty"`
 }
 
 func toRepoRecord(r model.RepoRecord) repoRecordDTO {
-	return repoRecordDTO{
+	d := repoRecordDTO{
 		repoDTO: toRepo(r.Repo), TargetID: r.TargetID, LastListedAt: ts(r.LastListedAt),
 		LastHeadSHA: r.LastHeadSHA, LastScannedAt: tsPtr(r.LastScannedAt),
 	}
+	if r.OpenBySeverity != nil {
+		d.OpenBySeverity = sevCounts(r.OpenBySeverity)
+	}
+	return d
 }
 
 type runtimeStatusDTO struct {

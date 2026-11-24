@@ -46,6 +46,9 @@ type RepoRecord struct {
 	LastListedAt  time.Time
 	LastHeadSHA   string
 	LastScannedAt *time.Time
+	// OpenBySeverity is computed by the service from open findings (stores
+	// do not persist it).
+	OpenBySeverity map[Severity]int
 }
 
 // JobTrigger says what started a job.

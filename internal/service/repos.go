@@ -24,7 +24,24 @@ func (s *reposSvc) List(ctx context.Context, f store.RepoFilter) (*Page[model.Re
 		page.Items = items[:limit]
 		page.NextCursor = items[limit-1].FullName()
 	}
+	for i := range page.Items {
+		counts, err := s.openCounts(ctx, page.Items[i].FullName())
+		if err != nil {
+			return nil, err
+		}
+		page.Items[i].OpenBySeverity = counts
+	}
 	return page, nil
+}
+
+// openCounts counts a repo's open findings by severity (one page of repos
+// at a time, so the cost is bounded by the page size).
+func (s *reposSvc) openCounts(ctx context.Context, repo string) (map[model.Severity]int, error) {
+	counts := map[model.Severity]int{}
+	err := eachFinding(ctx, s.d.Store, store.FindingFilter{Repo: repo, Status: model.StatusOpen}, func(f model.Finding) {
+		counts[f.Severity]++
+	})
+	return counts, err
 }
 
 func (s *reposSvc) Get(ctx context.Context, fullName string) (*RepoDetail, error) {
@@ -48,6 +65,10 @@ func (s *reposSvc) Get(ctx context.Context, fullName string) (*RepoDetail, error
 		rec = &model.RepoRecord{Repo: model.Repo{Owner: owner, Name: name, Provider: open[0].Provider}}
 	}
 	d := &RepoDetail{Record: *rec, Findings: open}
+	d.Record.OpenBySeverity = map[model.Severity]int{}
+	for _, f := range open {
+		d.Record.OpenBySeverity[f.Severity]++
+	}
 	for _, f := range open {
 		if f.Kind == model.KindRuntime && f.Runtime != nil {
 			d.Runtimes = append(d.Runtimes, *f.Runtime)

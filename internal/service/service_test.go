@@ -665,3 +665,40 @@ func TestSyncConfig(t *testing.T) {
 		t.Fatal(p, err)
 	}
 }
+
+func TestReposCarryOpenCounts(t *testing.T) {
+	e := newEnv(t, false)
+	ctx := context.Background()
+	e.profile(t, "pat", "token")
+	tg, err := e.svc.Targets.Create(ctx, "alice", service.TargetInput{Kind: model.TargetOrg, Owner: "acme", Auth: "pat", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.UpsertRepos(ctx, tg.ID, []model.Repo{{Provider: "github", Owner: "acme", Name: "api", Ref: "main"}}, t0); err != nil {
+		t.Fatal(err)
+	}
+	run := &model.ScanRun{StartedAt: t0}
+	if err := e.st.StartRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(adv string, sev model.Severity) model.Finding {
+		f := model.Finding{Kind: model.KindDependency, Provider: "github", Repo: "acme/api", ManifestPath: "go.mod",
+			Package: model.NewPackage(model.EcosystemGo, "example.com/x", "v1.0.0"), AdvisoryID: adv, Severity: sev}
+		f.ComputeID()
+		return f
+	}
+	if _, err := e.st.RecordFindings(ctx, run.ID, []string{"acme/api"}, []model.Finding{mk("GO-1", model.SeverityHigh), mk("GO-2", model.SeverityHigh), mk("GO-3", model.SeverityLow)}, t0); err != nil {
+		t.Fatal(err)
+	}
+	page, err := e.svc.Repos.List(ctx, store.RepoFilter{})
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("list: %v %+v", err, page)
+	}
+	if c := page.Items[0].OpenBySeverity; c[model.SeverityHigh] != 2 || c[model.SeverityLow] != 1 {
+		t.Fatalf("open counts = %v", c)
+	}
+	d, err := e.svc.Repos.Get(ctx, "acme/api")
+	if err != nil || d.Record.OpenBySeverity[model.SeverityHigh] != 2 {
+		t.Fatalf("detail counts: %v %+v", err, d)
+	}
+}
