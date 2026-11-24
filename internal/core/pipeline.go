@@ -49,6 +49,9 @@ type Pipeline struct {
 	// SnapshotSalt is folded into commit snapshot keys: parser options
 	// (private_modules, ecosystem settings) that change parse results.
 	SnapshotSalt string
+	// PruneAfter: repo caches (git mirrors) unused this long are deleted
+	// after a scan, by providers that support it (0 = never).
+	PruneAfter time.Duration
 
 	Logger *slog.Logger
 	Now    func() time.Time
@@ -223,7 +226,31 @@ func (p *Pipeline) scan(ctx context.Context, req ScanRequest, prog Progress, run
 	rep := &model.Report{Run: *run, GeneratedAt: now, Repos: reports, Diff: diff}
 	p.writeReports(rep, prog)
 	p.notify(ctx, rep, all, prog)
+	p.prune(ctx, results, prog)
 	return nil
+}
+
+// prune frees workspace disk through each provider used (they rate-limit
+// themselves). A failure only costs disk space.
+func (p *Pipeline) prune(ctx context.Context, results []*repoResult, prog Progress) {
+	if p.PruneAfter <= 0 {
+		return
+	}
+	seen := map[vcs.Provider]bool{}
+	for _, r := range results {
+		pr, ok := r.prov.(vcs.Pruner)
+		if !ok || seen[r.prov] {
+			continue
+		}
+		seen[r.prov] = true
+		res, err := pr.Prune(ctx, p.now().Add(-p.PruneAfter))
+		if err != nil {
+			prog.Event("warn", "", fmt.Sprintf("workspace cleanup: %v", err))
+		}
+		if res.Mirrors > 0 || res.Refs > 0 {
+			prog.Event("info", "", fmt.Sprintf("workspace cleanup: %d unused repo caches deleted, %d old commits dropped", res.Mirrors, res.Refs))
+		}
+	}
 }
 
 // ---- resolve & fetch ----

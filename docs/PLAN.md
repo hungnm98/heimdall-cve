@@ -13,6 +13,7 @@
 | Dedup | Gộp advisory theo ID + aliases; finding ID ổn định → không ghi 2 lỗi, không notify lặp | — |
 | Nhiều nhánh | ✅ `branches: ["release/*", develop]` + `max_branches`; finding nhánh phụ có `branch` (ID nhánh chính không đổi); nhánh bị xoá → finding `removed`; notify gộp 1 tin/CVE cho mọi nhánh; dashboard chỉ đếm nhánh chính | — |
 | Quét lại | ✅ `schedule` (cron, quét đầy đủ) + `poll` (chỉ quét nhánh có commit mới) trong config/UI; snapshot theo commit (Postgres) → commit không đổi thì không đọc/parse lại, vẫn đối chiếu OSV mới; `force` bỏ qua snapshot | webhook push |
+| Dọn ổ đĩa | ✅ `workspace.prune_after` (mặc định 720h): sau lượt quét (tối đa 1 lần/ngày) xoá mirror không dùng quá hạn, bỏ ref commit cũ + `git gc`; snapshot commit không dùng 30 ngày bị xoá | — |
 | VCS / auth | GitHub: **token**, **GitHub App**, **SSH**; GHES qua `base_url` | GitLab, Bitbucket… |
 | Target | org, user cá nhân, **1 repo URL cụ thể**, mỗi target gắn 1 **auth profile** | — |
 | Branch | default branch hoặc branch khai báo trong config | — |

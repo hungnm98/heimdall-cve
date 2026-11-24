@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -26,6 +27,11 @@ type Runner struct {
 // error. The environment is minimal: no credentials leak in from the parent
 // beyond what ssh needs (HOME, PATH, SSH_AUTH_SOCK).
 func (r Runner) Run(ctx context.Context, dir string, ssh *SSH, args ...string) ([]byte, error) {
+	return r.RunInput(ctx, dir, ssh, nil, args...)
+}
+
+// RunInput is Run with stdin (nil = none).
+func (r Runner) RunInput(ctx context.Context, dir string, ssh *SSH, stdin io.Reader, args ...string) ([]byte, error) {
 	bin := r.Bin
 	if bin == "" {
 		bin = "git"
@@ -33,6 +39,7 @@ func (r Runner) Run(ctx context.Context, dir string, ssh *SSH, args ...string) (
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	cmd.Env = env(ssh)
+	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {

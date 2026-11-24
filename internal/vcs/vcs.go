@@ -6,6 +6,7 @@ package vcs
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/hungnm98/heimdall-cve/internal/auth"
 	"github.com/hungnm98/heimdall-cve/internal/model"
@@ -40,6 +41,21 @@ type Provider interface {
 // names (needed for branch globs such as "release/*").
 type BranchLister interface {
 	ListBranches(ctx context.Context, r model.Repo) ([]string, error)
+}
+
+// Pruner is an optional Provider capability: freeing local disk used by
+// repo caches (git mirrors). Implementations rate-limit themselves, so
+// callers may call it after every scan.
+type Pruner interface {
+	// Prune deletes caches of repos not used since unusedSince and cached
+	// commits older than it.
+	Prune(ctx context.Context, unusedSince time.Time) (PruneResult, error)
+}
+
+// PruneResult is what a prune freed.
+type PruneResult struct {
+	Mirrors int // repo caches deleted
+	Refs    int // cached commits / branches dropped
 }
 
 // Credentials passed to a provider factory.

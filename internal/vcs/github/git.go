@@ -99,10 +99,14 @@ func (p *Provider) authConfig(rm remote) (string, error) {
 
 func (p *Provider) mirrorDir(r model.Repo) string { return p.repoDir(r.Owner, r.Name) + ".git" }
 
+// mirrorLocks serialises operations on one mirror within this process, across
+// provider instances (one per target and credential) sharing a workspace.
+var mirrorLocks sync.Map // mirror dir → *sync.Mutex
+
 // lock serialises operations on one mirror within this process. Concurrent
 // processes sharing a workspace rely on git's own lock files.
 func (p *Provider) lock(dir string) func() {
-	m, _ := p.locks.LoadOrStore(dir, &sync.Mutex{})
+	m, _ := mirrorLocks.LoadOrStore(dir, &sync.Mutex{})
 	mu := m.(*sync.Mutex)
 	mu.Lock()
 	return mu.Unlock
@@ -120,6 +124,7 @@ func (p *Provider) openMirror(ctx context.Context, r model.Repo) (dir string, rm
 		unlock()
 		return "", remote{}, nil, err
 	}
+	touch(filepath.Join(dir, usedMarker))
 	return dir, rm, unlock, nil
 }
 

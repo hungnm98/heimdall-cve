@@ -57,7 +57,7 @@ type MCPConfig struct {
 // A repo whose HEAD did not move is never cloned or downloaded again.
 type Workspace struct {
 	Dir        string        `mapstructure:"dir"`
-	PruneAfter time.Duration `mapstructure:"prune_after"` // drop mirrors of repos not scanned for this long
+	PruneAfter time.Duration `mapstructure:"prune_after"` // delete mirrors unused and cached commits older than this (checked after scans, at most daily)
 }
 
 // Server configures `heimdall serve`.

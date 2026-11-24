@@ -27,8 +27,8 @@ func (a *App) Pipeline(cat store.Catalog, providerFor func(context.Context, mode
 		Notifiers: a.Notifiers, Reporters: a.Reporters,
 		Policy: cfg.Policy, SkipPaths: cfg.SkipPaths, Concurrency: cfg.Concurrency.Repos,
 		ReportDir: cfg.Report.Dir, UIBaseURL: strings.TrimSuffix(cfg.Server.PublicURL, "/"),
-		SnapshotSalt: snapshotSalt(cfg),
-		Logger:       a.Logger, Now: time.Now,
+		SnapshotSalt: snapshotSalt(cfg), PruneAfter: cfg.Workspace.PruneAfter,
+		Logger: a.Logger, Now: time.Now,
 	}
 }
 

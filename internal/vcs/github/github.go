@@ -67,8 +67,6 @@ type Provider struct {
 	// tests point it at a local file:// directory.
 	sshBase string
 
-	locks sync.Map // mirror dir → *sync.Mutex
-
 	userMu    sync.Mutex
 	userLogin *string // login of the List token, once looked up
 }

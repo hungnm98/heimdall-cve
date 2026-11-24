@@ -95,7 +95,8 @@ cache:
 # Unchanged repos are never cloned or downloaded again.
 workspace:
   dir: ~/.cache/heimdall/repos
-  prune_after: 720h                    # drop mirrors of repos not scanned for 30 days
+  prune_after: 720h                    # after scans (at most daily): delete mirrors unused for 30 days
+                                       # and drop cached commits older than that (git gc)
 
 # Background jobs. inline = in-process (CLI, no Valkey). asynq = Valkey-backed workers.
 jobs:
