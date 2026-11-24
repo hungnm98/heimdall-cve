@@ -7,3 +7,5 @@ heimdall.yaml
 heimdall.json
 .heimdall-ignore.local.yaml
 /.claude/
+# built UI copied by `make web`; only the placeholder index.html is committed
+/internal/webui/dist/assets/

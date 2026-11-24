@@ -33,12 +33,18 @@ func TestConfigValidate(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// The github/token plugins are compiled in, so they must not be reported
-	// missing; any plugin still missing makes validation fail with exit code 2.
-	code, _, stderr := run("config", "validate", "-c", cfg)
-	if strings.Contains(stderr, `auth "token"`) || strings.Contains(stderr, `vcs "github"`) ||
-		(code != ExitOK && (code != ExitError || !strings.Contains(stderr, "plugin not registered"))) {
-		t.Fatalf("code=%d stderr=%s", code, stderr)
+	// Every plugin this config needs is compiled in: validation succeeds.
+	code, out, stderr := run("config", "validate", "-c", cfg)
+	if code != ExitOK || !strings.Contains(out, "config OK") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, out, stderr)
+	}
+	// An unknown plugin type is reported with exit code 2.
+	bad := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(bad, []byte(strings.Replace(body, "type: token", "type: nope", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := run("config", "validate", "-c", bad); code != ExitError || !strings.Contains(stderr, `auth "nope"`) {
+		t.Fatalf("unknown plugin: code=%d stderr=%s", code, stderr)
 	}
 	if code, _, stderr := run("config", "validate", "-c", filepath.Join(dir, "missing.yaml")); code != ExitError || stderr == "" {
 		t.Fatalf("missing file: code=%d stderr=%s", code, stderr)
