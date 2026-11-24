@@ -134,6 +134,7 @@ const FINDING: Record<FindingStatus, BadgeProps["variant"]> = {
   open: "warning",
   fixed: "success",
   suppressed: "secondary",
+  removed: "outline",
 };
 
 export function FindingStatusBadge({ status }: { status: FindingStatus }) {

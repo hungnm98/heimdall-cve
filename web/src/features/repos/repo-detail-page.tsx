@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Checkbox, Input } from "@/components/ui/input";
+import { Checkbox, Input, NativeSelect } from "@/components/ui/input";
 import { Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { FindingsTable } from "@/features/findings/findings-table";
@@ -152,7 +152,9 @@ function BranchScanDialog({
 
 export function RepoDetailPage() {
   const { owner, name } = route.useParams();
-  const q = useQuery(repoQuery(owner, name));
+  const { branch = "" } = route.useSearch();
+  const navigate = route.useNavigate();
+  const q = useQuery(repoQuery(owner, name, branch));
   const targets = useQuery(targetsQuery());
   const scan = useScan();
   const [branchOpen, setBranchOpen] = React.useState(false);
@@ -165,7 +167,8 @@ export function RepoDetailPage() {
       </div>
     );
   if (q.isError) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />;
-  const { repo, findings, runtimes, upgrade_plan } = q.data;
+  const { repo, findings, runtimes, upgrade_plan, branches } = q.data;
+  const shown = branches.find((b) => (branch ? b.name === branch : b.primary));
   const target = targets.data?.items.find((t) => t.id === repo.target_id);
   const req = { target_id: repo.target_id, repo: repo.full_name };
 
@@ -179,17 +182,38 @@ export function RepoDetailPage() {
           <h1 className="break-words text-xl font-semibold tracking-tight sm:text-2xl">{repo.full_name}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <ExtLink href={repoUrl(repo.full_name, repo.html_url)}>Open on {repo.host ?? "GitHub"}</ExtLink>
-            <span className="inline-flex items-center gap-1">
-              <GitBranch aria-hidden className="size-3" /> {repo.ref || repo.default_branch}
-            </span>
+            {branches.length > 1 ? (
+              <label className="inline-flex items-center gap-1">
+                <GitBranch aria-hidden className="size-3" />
+                <span className="sr-only">Branch</span>
+                <NativeSelect
+                  className="h-7 w-auto py-0 text-sm"
+                  value={branch}
+                  onChange={(e) => void navigate({ search: e.target.value ? { branch: e.target.value } : {} })}
+                >
+                  {branches.map((b) => (
+                    <option key={b.name} value={b.primary ? "" : b.name}>
+                      {b.name}
+                      {b.primary ? " (primary)" : ""} — {Object.values(b.open_by_severity).reduce((n, c) => n + c, 0)} open
+                    </option>
+                  ))}
+                </NativeSelect>
+              </label>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                <GitBranch aria-hidden className="size-3" /> {repo.ref || repo.default_branch}
+              </span>
+            )}
             <span>Target: {target?.label ?? `#${repo.target_id}`}</span>
             <span>
               Last scan: <RelativeTime value={repo.last_scanned_at} fallback="never" />
             </span>
-            {repo.last_head_sha ? <code className="text-xs">{repo.last_head_sha.slice(0, 10)}</code> : null}
+            {(shown?.head_sha ?? repo.last_head_sha) ? (
+              <code className="text-xs">{(shown?.head_sha ?? repo.last_head_sha ?? "").slice(0, 10)}</code>
+            ) : null}
           </div>
           <div className="mt-2">
-            <SeverityCounts counts={repo.open_by_severity} />
+            <SeverityCounts counts={shown?.open_by_severity ?? repo.open_by_severity} />
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

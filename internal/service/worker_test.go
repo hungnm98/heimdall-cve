@@ -119,7 +119,9 @@ func TestJobHandlerTargetJob(t *testing.T) {
 		t.Fatalf("scanner calls = %d", len(calls))
 	}
 	req := calls[0]
-	if len(req.Targets) != 1 || req.Targets[0].Owner != "acme" || req.Targets[0].Branch != "develop" ||
+	// A one-off branch is an extra branch: the primary branch is unchanged.
+	if len(req.Targets) != 1 || req.Targets[0].Owner != "acme" || req.Targets[0].Branch != "" ||
+		strings.Join(req.Targets[0].Branches, ",") != "develop" ||
 		req.Repo != "acme/api" || req.Trigger != model.TriggerManual || req.TargetIDs[req.Targets[0].String()] != e.tgt.ID {
 		t.Fatalf("request = %+v", req)
 	}

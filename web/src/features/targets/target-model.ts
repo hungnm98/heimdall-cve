@@ -8,6 +8,8 @@ export interface TargetFormState {
   url: string;
   base_url: string;
   branch: string;
+  branches: string;
+  max_branches: string;
   auth: string;
   list_auth: string;
   include: string;
@@ -19,8 +21,17 @@ export interface TargetFormState {
   max_repos: string;
   schedulePreset: SchedulePresetId;
   customCron: string;
+  poll: string;
   enabled: boolean;
 }
+
+/** Poll choices: a cheap check that rescans only branches whose commit moved. */
+export const POLL_PRESETS = [
+  { value: "", label: "Off" },
+  { value: "@every 15m", label: "Every 15 minutes" },
+  { value: "@every 1h", label: "Every hour" },
+  { value: "@every 6h", label: "Every 6 hours" },
+] as const;
 
 export const EMPTY_TARGET: TargetFormState = {
   kind: "org",
@@ -28,6 +39,8 @@ export const EMPTY_TARGET: TargetFormState = {
   url: "",
   base_url: "",
   branch: "",
+  branches: "",
+  max_branches: "",
   auth: "",
   list_auth: "",
   include: "",
@@ -39,6 +52,7 @@ export const EMPTY_TARGET: TargetFormState = {
   max_repos: "",
   schedulePreset: "daily",
   customCron: "",
+  poll: "",
   enabled: true,
 };
 
@@ -49,6 +63,9 @@ export const TARGET_FIELDS = [
   "url",
   "base_url",
   "branch",
+  "branches",
+  "max_branches",
+  "poll",
   "auth",
   "list_auth",
   "schedule",
@@ -75,6 +92,10 @@ export function toTargetInput(s: TargetFormState, needsListAuth: boolean): Targe
     schedule: scheduleOf(s),
     enabled: s.enabled,
   };
+  const branches = splitList(s.branches);
+  if (branches.length) input.branches = branches;
+  if (/^\d+$/.test(s.max_branches.trim())) input.max_branches = Number(s.max_branches.trim());
+  if (s.poll) input.poll = s.poll;
   if (s.base_url.trim()) input.base_url = s.base_url.trim();
   if (s.kind === "repo") {
     input.url = s.url.trim();
@@ -103,6 +124,8 @@ export function fromTarget(t: Target): TargetFormState {
     url: t.url ?? "",
     base_url: t.base_url ?? "",
     branch: t.branch ?? "",
+    branches: (t.branches ?? []).join(", "),
+    max_branches: t.max_branches ? String(t.max_branches) : "",
     auth: t.auth,
     list_auth: t.list_auth ?? "",
     include: (t.filter?.include ?? []).join(", "),
@@ -114,12 +137,13 @@ export function fromTarget(t: Target): TargetFormState {
     max_repos: t.filter?.max_repos !== undefined ? String(t.filter.max_repos) : "",
     schedulePreset: preset,
     customCron: preset === "custom" ? (t.schedule ?? "") : "",
+    poll: t.poll ?? "",
     enabled: t.enabled ?? true,
   };
 }
 
 /** The writable part of a Target (PATCH replaces all writable fields). */
 export function targetInputOf(t: Target): TargetInput {
-  const { kind, provider, base_url, owner, url, branch, auth, list_auth, repos, filter, schedule, enabled } = t;
-  return { kind, provider, base_url, owner, url, branch, auth, list_auth, repos, filter, schedule, enabled };
+  const { kind, provider, base_url, owner, url, branch, branches, max_branches, poll, auth, list_auth, repos, filter, schedule, enabled } = t;
+  return { kind, provider, base_url, owner, url, branch, branches, max_branches, poll, auth, list_auth, repos, filter, schedule, enabled };
 }

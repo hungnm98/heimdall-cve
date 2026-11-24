@@ -368,8 +368,11 @@ class Db {
     const r = this.repos.find((x) => x.owner === owner && x.name === name);
     if (!r) throw notFound(`Repository ${owner}/${name}`);
     const findings = this.findings.filter((f) => f.repo === r.full_name);
+    const open: Record<string, number> = {};
+    for (const f of findings) open[f.severity] = (open[f.severity] ?? 0) + 1;
     return {
       repo: this.repoRecord(r),
+      branches: [{ name: r.ref, primary: true, open_by_severity: open }],
       findings: sortFindings(findings).map((f) => this.publicFinding(f)),
       runtimes: runtimesFor(r.full_name),
       upgrade_plan: upgradePlan(findings),

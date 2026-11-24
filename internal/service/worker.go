@@ -128,7 +128,9 @@ func (h *jobHandler) request(ctx context.Context, j *model.Job) (*core.ScanReque
 		}
 		tg := t.Target
 		if j.Branch != "" {
-			tg.Branch = j.Branch
+			// A one-off branch is scanned as an extra branch: the primary
+			// branch keeps its findings, the configured extras stay.
+			tg.Branches = append(append([]string(nil), tg.Branches...), j.Branch)
 		}
 		req.Targets, req.Repo = []model.Target{tg}, j.Repo
 		req.TargetIDs[tg.String()] = t.ID

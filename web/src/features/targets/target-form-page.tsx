@@ -16,7 +16,7 @@ import { Skeleton, Switch } from "@/components/ui/misc";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { useScan } from "@/features/jobs/use-scan";
 import { cronError, SCHEDULE_PRESETS, type SchedulePresetId } from "@/lib/schedule";
-import { EMPTY_TARGET, fromTarget, TARGET_FIELDS, type TargetFormState, toTargetInput } from "./target-model";
+import { EMPTY_TARGET, fromTarget, POLL_PRESETS, TARGET_FIELDS, type TargetFormState, toTargetInput } from "./target-model";
 
 type Errors = Partial<Record<string, string>>;
 
@@ -34,6 +34,7 @@ function clientErrors(s: TargetFormState, needsListAuth: boolean): Errors {
     if (err) e.schedule = err;
   }
   if (s.max_repos.trim() !== "" && !/^\d+$/.test(s.max_repos.trim())) e["filter.max_repos"] = "Enter a whole number.";
+  if (s.max_branches.trim() !== "" && !/^\d+$/.test(s.max_branches.trim())) e.max_branches = "Enter a whole number.";
   return e;
 }
 
@@ -216,6 +217,19 @@ export function TargetForm({ target }: { target?: Target }) {
             <Field id="t-branch" label="Branch" error={errors.branch} hint="Leave empty to use each repository's default branch.">
               <Input value={s.branch} onChange={(e) => set("branch", e.target.value)} placeholder="default branch" />
             </Field>
+            <Field
+              id="t-branches"
+              label="Extra branches"
+              error={errors.branches}
+              hint="Also scanned, comma-separated; globs like release/* are allowed. Missing branches are skipped."
+            >
+              <Input value={s.branches} onChange={(e) => set("branches", e.target.value)} placeholder="release/*, develop" autoComplete="off" />
+            </Field>
+            {s.branches.trim() ? (
+              <Field id="t-max_branches" label="Max extra branches per repository" error={errors.max_branches} hint="Empty = 10.">
+                <Input inputMode="numeric" value={s.max_branches} onChange={(e) => set("max_branches", e.target.value)} />
+              </Field>
+            ) : null}
             <Field id="t-base_url" label="GitHub Enterprise API URL" error={errors.base_url} hint="Only for GitHub Enterprise Server.">
               <Input value={s.base_url} onChange={(e) => set("base_url", e.target.value)} placeholder="https://github.example.com/api/v3" />
             </Field>
@@ -279,6 +293,21 @@ export function TargetForm({ target }: { target?: Target }) {
                 <Input value={s.customCron} onChange={(e) => set("customCron", e.target.value)} placeholder="30 3 * * 1-5" className="font-mono" />
               </Field>
             ) : null}
+            <Field
+              id="t-poll"
+              label="Check for new commits"
+              error={errors.poll}
+              hint="Rescans only branches whose commit moved since their last scan; unchanged repositories cost one request each."
+            >
+              <NativeSelect value={s.poll} onChange={(e) => set("poll", e.target.value)}>
+                {POLL_PRESETS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+                {s.poll && !POLL_PRESETS.some((p) => p.value === s.poll) ? <option value={s.poll}>{s.poll}</option> : null}
+              </NativeSelect>
+            </Field>
             <div className="flex items-center gap-3 sm:col-span-2">
               <Switch id="t-enabled" checked={s.enabled} onCheckedChange={(v) => set("enabled", v)} />
               <label htmlFor="t-enabled" className="text-sm">

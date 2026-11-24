@@ -476,8 +476,11 @@ export interface components {
         Severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
         /** @enum {string} */
         FindingKind: "dependency" | "runtime" | "code" | "secret" | "config";
-        /** @enum {string} */
-        FindingStatus: "open" | "fixed" | "suppressed";
+        /**
+         * @description removed = its branch is gone or no longer scanned
+         * @enum {string}
+         */
+        FindingStatus: "open" | "fixed" | "suppressed" | "removed";
         /** @enum {string} */
         BumpType: "" | "patch" | "minor" | "major" | "no-fix-available";
         /** @enum {string} */
@@ -532,6 +535,12 @@ export interface components {
             filter?: components["schemas"]["RepoFilter"];
             /** @description Cron expression (UTC). Presets: '0 2 * * *' daily, '0 2 *\/3 * *' every 3 days, '' manual */
             schedule?: string;
+            /** @description Extra branches scanned besides `branch`: names or globs (release/*) */
+            branches?: string[];
+            /** @description Cap on extra branches per repo (0 = 10) */
+            max_branches?: number;
+            /** @description Cron expression for a cheap check that rescans only branches whose commit moved; '' = off */
+            poll?: string;
             /** @default true */
             enabled?: boolean;
         };
@@ -548,6 +557,8 @@ export interface components {
             origin: components["schemas"]["Origin"];
             /** Format: date-time */
             next_run_at?: string | null;
+            /** Format: date-time */
+            next_poll_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -575,7 +586,7 @@ export interface components {
                 [key: string]: unknown;
             };
             has_secret: boolean;
-            /** @description Non-reversible identifier */
+            /** @description Non-reversible identifier, e.g. 1a2b3c4d…wxyz */
             secret_fingerprint?: string;
             origin: components["schemas"]["Origin"];
             /** @description Target ids */
@@ -644,8 +655,22 @@ export interface components {
             /** @example go get golang.org/x/net@v0.23.0 */
             advice?: string;
         };
+        BranchStatus: {
+            name: string;
+            primary: boolean;
+            head_sha?: string;
+            /** Format: date-time */
+            scanned_at?: string;
+            open_by_severity: {
+                [key: string]: number;
+            };
+        };
         RepoDetail: {
             repo: components["schemas"]["RepoRecord"];
+            /** @description The branch shown; empty = primary branch */
+            branch?: string;
+            /** @description Scanned branches */
+            branches: components["schemas"]["BranchStatus"][];
             findings: components["schemas"]["Finding"][];
             runtimes: components["schemas"]["RuntimeStatus"][];
             upgrade_plan: components["schemas"]["UpgradeItem"][];
@@ -654,6 +679,8 @@ export interface components {
             id: string;
             kind: components["schemas"]["FindingKind"];
             repo: string;
+            /** @description Extra branch; absent = primary branch */
+            branch?: string;
             manifest_path: string;
             package?: components["schemas"]["Package"];
             direct?: boolean;
@@ -677,6 +704,7 @@ export interface components {
             recommended_version?: string;
             bump?: components["schemas"]["BumpType"];
             advice?: string;
+            /** @description urgency 0–100: 90+ in CISA KEV or malicious, 70+ EPSS >= 0.1, below by CVSS/severity and EPSS; x0.9 indirect (not KEV/malicious), x0.5 dev-only */
             priority?: number;
             runtime?: components["schemas"]["RuntimeStatus"];
             sources: string[];
@@ -1198,7 +1226,10 @@ export interface operations {
     };
     getRepo: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Extra branch to show; omitted = the primary branch */
+                branch?: string;
+            };
             header?: never;
             path: {
                 owner: string;
@@ -1228,6 +1259,10 @@ export interface operations {
                 status?: components["schemas"]["FindingStatus"];
                 min_severity?: components["schemas"]["Severity"];
                 kev?: boolean;
+                /** @description Only this extra branch */
+                branch?: string;
+                /** @description Only primary-branch findings (default or configured branch) */
+                primary_branch?: boolean;
                 new_since?: string;
                 /** @description Package name substring or exact CVE/GHSA/GO id */
                 q?: string;

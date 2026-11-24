@@ -65,7 +65,12 @@ const reposRoute = createRoute({
   component: ReposPage,
 });
 
-const repoRoute = createRoute({ getParentRoute: () => rootRoute, path: "/repos/$owner/$name", component: RepoDetailPage });
+const repoRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/repos/$owner/$name",
+  validateSearch: (s: Record<string, unknown>): { branch?: string } => ({ branch: str(s.branch) }),
+  component: RepoDetailPage,
+});
 
 const targetsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/targets", component: TargetsPage });
 const targetNewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/targets/new", component: TargetFormPage });

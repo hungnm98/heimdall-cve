@@ -26,7 +26,7 @@ export const keys = {
   authProfiles: ["auth-profiles"] as const,
   repos: ["repos"] as const,
   repoList: (q: { q?: string; target_id?: number }) => ["repos", "list", q] as const,
-  repo: (owner: string, name: string) => ["repos", "detail", owner, name] as const,
+  repo: (owner: string, name: string, branch = "") => ["repos", "detail", owner, name, branch] as const,
   findings: ["findings"] as const,
   findingList: (q: FindingsQuery) => ["findings", "list", q] as const,
   finding: (id: string) => ["findings", "detail", id] as const,
@@ -78,10 +78,11 @@ export const reposQuery = (q: { q?: string; target_id?: number }) =>
     getNextPageParam: nextCursor,
   });
 
-export const repoQuery = (owner: string, name: string) =>
+export const repoQuery = (owner: string, name: string, branch = "") =>
   queryOptions({
-    queryKey: keys.repo(owner, name),
-    queryFn: () => unwrap(api.GET("/repos/{owner}/{name}", { params: { path: { owner, name } } })),
+    queryKey: keys.repo(owner, name, branch),
+    queryFn: () =>
+      unwrap(api.GET("/repos/{owner}/{name}", { params: { path: { owner, name }, query: branch ? { branch } : {} } })),
   });
 
 export const findingsQuery = (q: FindingsQuery) =>

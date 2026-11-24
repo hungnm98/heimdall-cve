@@ -223,13 +223,14 @@ export function FindingDetailPage() {
                   [
                     "Repository",
                     owner && name ? (
-                      <Link key="r" to="/repos/$owner/$name" params={{ owner, name }} className="hover:underline">
+                      <Link key="r" to="/repos/$owner/$name" params={{ owner, name }} search={f.branch ? { branch: f.branch } : {}} className="hover:underline">
                         {f.repo}
                       </Link>
                     ) : (
                       f.repo
                     ),
                   ],
+                  ["Branch", f.branch ? <code key="b">{f.branch}</code> : "primary"],
                   ["Manifest", <code key="m">{f.manifest_path}</code>],
                   ...(f.package ? ([["Ecosystem", f.package.ecosystem], ["purl", <code key="p" className="break-all text-xs">{f.package.purl}</code>]] as [React.ReactNode, React.ReactNode][]) : []),
                   ["Dependency", f.direct === undefined ? "—" : f.direct ? "direct" : `transitive${f.parents?.length ? ` via ${f.parents.join(", ")}` : ""}`],
