@@ -1,0 +1,16 @@
+{
+  "name": "dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "lodash-legacy": "npm:lodash@4.17.20"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "optionalDependencies": {
+    "bufferutil": "^4.0.8"
+  }
+}

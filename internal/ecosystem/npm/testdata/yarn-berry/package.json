@@ -1,0 +1,14 @@
+{
+  "name": "berry-app",
+  "private": true,
+  "packageManager": "yarn@4.0.2",
+  "workspaces": ["packages/*"],
+  "dependencies": {
+    "@acme/lib": "workspace:^",
+    "semver": "^7.5.4",
+    "is-even": "npm:@acme/is-even@^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.2"
+  }
+}

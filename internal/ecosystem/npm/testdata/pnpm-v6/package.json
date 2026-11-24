@@ -1,0 +1,12 @@
+{
+  "name": "pnpm-six",
+  "version": "1.0.0",
+  "dependencies": {
+    "debug": "^4.3.4",
+    "my-utils": "file:../my-utils",
+    "string-width-cjs": "npm:string-width@^4.2.0"
+  },
+  "devDependencies": {
+    "eslint-plugin-x": "^1.0.0"
+  }
+}

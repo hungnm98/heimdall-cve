@@ -1,0 +1,10 @@
+{
+  "name": "acme-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "devDependencies": {
+    "prettier": "^3.1.0"
+  }
+}

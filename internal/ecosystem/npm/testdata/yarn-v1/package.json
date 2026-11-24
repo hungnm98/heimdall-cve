@@ -1,0 +1,14 @@
+{
+  "name": "storefront",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@babel/runtime": "^7.23.2",
+    "lodash": "^4.17.15",
+    "old-lodash": "npm:lodash@^3.10.1",
+    "color-picker": "github:acme/color-picker#v2.0.0"
+  },
+  "devDependencies": {
+    "jest-util": "^29.7.0"
+  }
+}

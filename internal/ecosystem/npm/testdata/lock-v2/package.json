@@ -1,0 +1,12 @@
+{
+  "name": "web-app",
+  "version": "2.3.0",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "internal-utils": "file:../internal-utils",
+    "forked-lib": "git+ssh://git@github.com/acme/forked-lib.git#v1.0.1"
+  },
+  "devDependencies": {
+    "typescript": "~5.3.3"
+  }
+}

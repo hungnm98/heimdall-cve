@@ -1,0 +1,8 @@
+{
+  "name": "@acme/lib",
+  "version": "1.0.0",
+  "dependencies": {
+    "tslib": "^2.6.2",
+    "local-helpers": "portal:../../helpers"
+  }
+}
