@@ -3,12 +3,14 @@ import {
   type ColumnDef,
   flexRender,
   getCoreRowModel,
+  getSortedRowModel,
+  type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, GitBranch } from "lucide-react";
 import * as React from "react";
-import type { Finding } from "@/api/types";
+import type { Finding, FindingSort } from "@/api/types";
 import {
   BumpBadge,
   FindingStatusBadge,
@@ -18,12 +20,33 @@ import {
   UnverifiedBadge,
 } from "@/components/badges";
 import { RelativeTime } from "@/components/common";
+import { SortableTH, type SortOrder, type SortState } from "@/components/ui/sortable-header";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
+import { SEVERITY_RANK } from "@/lib/severity";
 
 export function findingTitle(f: Finding) {
   if (f.package) return f.package.name;
   if (f.runtime) return `${f.runtime.name} ${f.runtime.version}`;
   return f.advisory_id ?? f.id;
+}
+
+export type FindingSortState = SortState<FindingSort>;
+
+/** Order of a column's first click: worst / newest first, names A→Z. */
+export const FINDING_SORT_FIRST: Record<FindingSort, SortOrder> = {
+  severity: "desc",
+  priority: "desc",
+  first_seen: "desc",
+  name: "asc",
+  repo: "asc",
+};
+
+/** The API's default order (GET /findings without sort). */
+export const DEFAULT_FINDING_SORT: FindingSortState = { key: "severity", order: "desc" };
+
+/** Same key as the API's "name" sort: package, else runtime, else advisory id. */
+export function findingSortName(f: Finding) {
+  return (f.package?.name || f.runtime?.name || f.advisory_id || "").toLowerCase();
 }
 
 /** Priority 0–100 (90+ exploited, 70+ likely exploited), with EPSS when known. */
@@ -43,16 +66,22 @@ function columns(showRepo: boolean): ColumnDef<Finding>[] {
     {
       id: "severity",
       header: "Severity",
+      accessorFn: (f) => SEVERITY_RANK[f.severity],
+      sortingFn: "basic",
       cell: ({ row }) => <SeverityBadge severity={row.original.severity} />,
     },
     {
       id: "priority",
       header: "Priority",
+      accessorFn: (f) => f.priority ?? -1,
+      sortingFn: "basic",
       cell: ({ row }) => <PriorityScore finding={row.original} />,
     },
     {
-      id: "what",
+      id: "name",
       header: "Package / advisory",
+      accessorFn: findingSortName,
+      sortingFn: "basic",
       cell: ({ row }) => {
         const f = row.original;
         return (
@@ -81,14 +110,28 @@ function columns(showRepo: boolean): ColumnDef<Finding>[] {
     cols.push({
       id: "repo",
       header: "Repository",
+      accessorFn: (f) => f.repo,
+      sortingFn: "basic",
       cell: ({ row }) => {
-        const [owner, name] = row.original.repo.split("/");
-        return owner && name ? (
-          <Link to="/repos/$owner/$name" params={{ owner, name }} className="whitespace-nowrap hover:underline">
-            {row.original.repo}
-          </Link>
-        ) : (
-          row.original.repo
+        const f = row.original;
+        const [owner, name] = f.repo.split("/");
+        return (
+          <div className="whitespace-nowrap">
+            {owner && name ? (
+              <Link to="/repos/$owner/$name" params={{ owner, name }} search={f.branch ? { branch: f.branch } : {}} className="hover:underline">
+                {f.repo}
+              </Link>
+            ) : (
+              f.repo
+            )}
+            {f.branch ? (
+              <div className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <GitBranch aria-hidden className="size-3" />
+                <span className="sr-only">branch</span>
+                {f.branch}
+              </div>
+            ) : null}
+          </div>
         );
       },
     });
@@ -97,6 +140,7 @@ function columns(showRepo: boolean): ColumnDef<Finding>[] {
     {
       id: "fix",
       header: "Fix",
+      enableSorting: false,
       cell: ({ row }) => {
         const f = row.original;
         if (!f.recommended_version) return <BumpBadge bump={f.bump} />;
@@ -110,29 +154,61 @@ function columns(showRepo: boolean): ColumnDef<Finding>[] {
         );
       },
     },
-    { id: "status", header: "Status", cell: ({ row }) => <FindingStatusBadge status={row.original.status} /> },
-    { id: "first_seen", header: "First seen", cell: ({ row }) => <RelativeTime value={row.original.first_seen} /> },
+    { id: "status", header: "Status", enableSorting: false, cell: ({ row }) => <FindingStatusBadge status={row.original.status} /> },
+    {
+      id: "first_seen",
+      header: "First seen",
+      accessorFn: (f) => Date.parse(f.first_seen),
+      sortingFn: "basic",
+      cell: ({ row }) => <RelativeTime value={row.original.first_seen} />,
+    },
   );
   return cols;
 }
 
+const toSorting = (s: FindingSortState | undefined): SortingState => (s ? [{ id: s.key, desc: s.order === "desc" }] : []);
+
 /**
  * Findings table. With `virtualize`, only rows near the viewport are rendered,
  * so thousands of loaded findings stay cheap (rows use the window as scroller).
+ *
+ * Sorting: with `onSortChange` the caller controls `sort` and passes findings
+ * already in that order (the paginated findings page sorts on the server).
+ * Without it the table sorts the given findings in memory, starting from
+ * `initialSort` (none: keep the given order); use that only for complete
+ * lists, never for one page of a paginated list.
  */
 export function FindingsTable({
   findings,
   showRepo = true,
   virtualize = false,
   caption,
+  sort: controlledSort,
+  onSortChange,
+  initialSort,
 }: {
   findings: Finding[];
   showRepo?: boolean;
   virtualize?: boolean;
   caption?: string;
+  sort?: FindingSortState;
+  onSortChange?: (s: FindingSortState) => void;
+  initialSort?: FindingSortState;
 }) {
   const cols = React.useMemo(() => columns(showRepo), [showRepo]);
-  const table = useReactTable({ data: findings, columns: cols, getCoreRowModel: getCoreRowModel(), getRowId: (f) => f.id });
+  const [localSort, setLocalSort] = React.useState(initialSort);
+  const manual = onSortChange !== undefined;
+  const sort = manual ? controlledSort : localSort;
+  const onSort = manual ? onSortChange : setLocalSort;
+  const table = useReactTable({
+    data: findings,
+    columns: cols,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    manualSorting: manual,
+    state: { sorting: toSorting(sort) },
+    getRowId: (f) => f.id,
+  });
   const rows = table.getRowModel().rows;
   const bodyRef = React.useRef<HTMLTableSectionElement>(null);
   const [margin, setMargin] = React.useState(0);
@@ -158,9 +234,17 @@ export function FindingsTable({
       <THead>
         {table.getHeaderGroups().map((hg) => (
           <tr key={hg.id}>
-            {hg.headers.map((h) => (
-              <TH key={h.id}>{flexRender(h.column.columnDef.header, h.getContext())}</TH>
-            ))}
+            {hg.headers.map((h) => {
+              const label = flexRender(h.column.columnDef.header, h.getContext());
+              const key = h.column.id as FindingSort;
+              return h.column.getCanSort() ? (
+                <SortableTH key={h.id} sortKey={key} first={FINDING_SORT_FIRST[key]} sort={sort} onSort={onSort}>
+                  {label}
+                </SortableTH>
+              ) : (
+                <TH key={h.id}>{label}</TH>
+              );
+            })}
           </tr>
         ))}
       </THead>
