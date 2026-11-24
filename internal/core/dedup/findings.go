@@ -155,6 +155,11 @@ func newFinding(loc Location, manifest string, d model.Dependency, a *model.Advi
 	if f.Severity == "" {
 		f.Severity = model.SeverityUnknown
 	}
+	// A malicious package (OSV MAL-*) is compromised code running in the
+	// build or the app: always the most urgent, whatever its record says.
+	if f.Malicious {
+		f.Severity = model.SeverityCritical
+	}
 	f.ComputeID()
 	return f
 }

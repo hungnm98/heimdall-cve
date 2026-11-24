@@ -506,6 +506,11 @@ func runtimeFindings(r *repoResult, statuses map[rtKey]*model.RuntimeStatus) []m
 		if st == nil || (st.Status != model.SupportEOL && st.Status != model.SupportEOLSoon) {
 			continue
 		}
+		// An open lower bound (engines.node ">=18") allows supported
+		// versions: the project is not pinned to an EOL runtime.
+		if openLowerBound(rt.Version) {
+			continue
+		}
 		s := *st
 		s.Runtime = rt
 		sev, what := model.SeverityMedium, "reaches end of life soon"
@@ -522,6 +527,12 @@ func runtimeFindings(r *repoResult, statuses map[rtKey]*model.RuntimeStatus) []m
 		out = append(out, f)
 	}
 	return out
+}
+
+// openLowerBound reports a range with no upper bound, e.g. ">=18" or ">= 3.0".
+func openLowerBound(v string) bool {
+	v = strings.TrimSpace(v)
+	return strings.HasPrefix(v, ">") && !strings.ContainsAny(v, "<^~|")
 }
 
 func repoStatuses(r *repoResult, statuses map[rtKey]*model.RuntimeStatus) []model.RuntimeStatus {

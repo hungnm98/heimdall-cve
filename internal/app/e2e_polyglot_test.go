@@ -135,7 +135,7 @@ workspace: { dir: %q }
 	if f := got["rubygems:rack"]; !strings.Contains(f.Advice, "bundle update rack") {
 		t.Errorf("ruby advice = %q", f.Advice)
 	}
-	if f := got["npm:evil-helper"]; !f.Malicious || !strings.Contains(f.Advice, "remove evil-helper") {
+	if f := got["npm:evil-helper"]; !f.Malicious || f.Severity != model.SeverityCritical || !strings.Contains(f.Advice, "remove evil-helper") {
 		t.Errorf("malicious package: %+v", f)
 	}
 	for _, rt := range []string{"runtime:node", "runtime:ruby", "runtime:go"} {

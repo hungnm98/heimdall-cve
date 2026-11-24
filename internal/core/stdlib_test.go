@@ -36,3 +36,23 @@ func TestStdlibGraphsOnePerVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenLowerBound(t *testing.T) {
+	for v, want := range map[string]bool{">=18": true, "> 20.1": true, ">=18 <21": false, "^18": false, "18": false, "~3.2": false, ">=3.0 || 2.7": false} {
+		if got := openLowerBound(v); got != want {
+			t.Errorf("openLowerBound(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+func TestRuntimeFindingsSkipOpenRanges(t *testing.T) {
+	r := &repoResult{repo: model.Repo{Provider: "github", Owner: "o", Name: "r"}, runtimes: []model.Runtime{
+		{Name: "node", Version: ">=18", Origin: "package.json", Via: "engines.node"},
+		{Name: "node", Version: "18", Origin: ".nvmrc", Via: ".nvmrc"},
+	}}
+	eol := &model.RuntimeStatus{Cycle: "18", Status: model.SupportEOL, Source: "endoflife"}
+	fs := runtimeFindings(r, map[rtKey]*model.RuntimeStatus{{"node", ">=18"}: eol, {"node", "18"}: eol})
+	if len(fs) != 1 || fs[0].ManifestPath != ".nvmrc" {
+		t.Fatalf("only the pinned declaration is EOL: %+v", fs)
+	}
+}
