@@ -414,3 +414,20 @@ func TestAliasSeverity(t *testing.T) {
 		}
 	})
 }
+
+func TestAliasSeverityBitnami(t *testing.T) {
+	f, srv := newFakeOSV(t)
+	s := newSource(t, srv, nil, nil)
+	advs := []model.Advisory{{ID: "GO-2025-4006", Aliases: []string{"CVE-2025-61725", "BIT-golang-2025-61725"}, Severity: model.SeverityUnknown}}
+	if err := s.aliasSeverity(context.Background(), advs); err != nil {
+		t.Fatal(err)
+	}
+	if advs[0].Severity != model.SeverityHigh || advs[0].CVSSScore != 7.5 {
+		t.Fatalf("Bitnami alias must score the stdlib advisory: %+v", advs[0])
+	}
+	f.with(func() {
+		if f.detailCalls["CVE-2025-61725"] != 0 {
+			t.Fatalf("BIT- is tried before CVE-: %v", f.detailCalls)
+		}
+	})
+}

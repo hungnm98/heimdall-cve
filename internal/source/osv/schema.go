@@ -164,6 +164,29 @@ func toAdvisory(v osvVuln, sourceName string) model.Advisory {
 	return a
 }
 
+// severityOf scores a record from every severity it carries, whatever the
+// ecosystem of its affected entries (alias records such as Bitnami's are
+// about ecosystems Heimdall does not scan).
+func severityOf(v osvVuln) model.Advisory {
+	sev := append([]osvSeverity(nil), v.Severity...)
+	labels := []string{v.DatabaseSpecific.label()}
+	for _, af := range v.Affected {
+		sev = append(sev, af.Severity...)
+		labels = append(labels, af.DatabaseSpecific.label(), af.EcosystemSpecific.label())
+	}
+	var a model.Advisory
+	a.CVSSVector, a.CVSSScore = pickCVSS(sev)
+	a.Severity = model.SeverityFromCVSS(a.CVSSScore)
+	if a.Severity == model.SeverityUnknown {
+		for _, l := range labels {
+			if s := model.ParseSeverity(l); s.Rank() > a.Severity.Rank() {
+				a.Severity = s
+			}
+		}
+	}
+	return a
+}
+
 // eventsToRanges turns an ordered OSV event list into ranges: each
 // "introduced" opens a range closed by the next "fixed" or "last_affected".
 // A range left open at the end affects every later version.

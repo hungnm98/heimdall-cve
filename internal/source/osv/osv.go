@@ -45,7 +45,8 @@ type Config struct {
 	Concurrency int           `mapstructure:"concurrency"` // parallel detail fetches (default 8)
 	CacheTTL    time.Duration `mapstructure:"cache_ttl"`   // detail cache TTL (default 720h; records are keyed by modified)
 	// AliasSeverity fills the severity of advisories that carry none (most
-	// Go vulndb GO-* records) from their GHSA or CVE alias records (default true).
+	// Go vulndb GO-* records) from their GHSA, Bitnami (BIT-) or CVE alias
+	// records (default true).
 	AliasSeverity *bool `mapstructure:"alias_severity"`
 }
 
@@ -188,16 +189,20 @@ func (s *Source) aliasSeverity(ctx context.Context, advs []model.Advisory) error
 			advs[i].Severity, advs[i].CVSSVector, advs[i].CVSSScore = k.Severity, k.CVSSVector, k.CVSSScore
 			continue
 		}
-		var ghsa, cve []string
+		// GHSA has the best severity data; Bitnami (BIT-) records carry CVSS
+		// for most Go standard library CVEs that NVD and GHSA leave unscored.
+		var ghsa, bit, cve []string
 		for _, al := range a.Aliases {
 			switch {
 			case strings.HasPrefix(al, "GHSA-"):
 				ghsa = append(ghsa, al)
+			case strings.HasPrefix(al, "BIT-"):
+				bit = append(bit, al)
 			case strings.HasPrefix(al, "CVE-"):
 				cve = append(cve, al)
 			}
 		}
-		if cands := append(ghsa, cve...); len(cands) > 0 {
+		if cands := append(append(ghsa, bit...), cve...); len(cands) > 0 {
 			jobs = append(jobs, job{i, cands})
 		}
 	}
@@ -227,7 +232,7 @@ func (s *Source) aliasSeverity(ctx context.Context, advs []model.Advisory) error
 				if v.ID == "" {
 					continue
 				}
-				alias := toAdvisory(v, Name)
+				alias := severityOf(v)
 				if alias.Severity == model.SeverityUnknown {
 					continue
 				}
@@ -244,7 +249,7 @@ func (s *Source) aliasSeverity(ctx context.Context, advs []model.Advisory) error
 }
 
 func firstKnown(aliases []string, known map[string]model.Advisory) (model.Advisory, bool) {
-	for _, prefix := range []string{"GHSA-", "CVE-"} {
+	for _, prefix := range []string{"GHSA-", "BIT-", "CVE-"} {
 		for _, al := range aliases {
 			if k, ok := known[al]; ok && strings.HasPrefix(al, prefix) {
 				return k, true
