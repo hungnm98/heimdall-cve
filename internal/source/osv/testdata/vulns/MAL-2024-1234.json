@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.6.0",
+  "id": "MAL-2024-1234",
+  "modified": "2024-02-02T10:00:00Z",
+  "published": "2024-02-01T09:00:00Z",
+  "summary": "Malicious code in evil-helper (npm)",
+  "details": "Any computer that has this package installed or running should be considered fully compromised.",
+  "affected": [
+    {
+      "package": {"ecosystem": "npm", "name": "evil-helper"},
+      "versions": ["1.0.0", "1.0.1"],
+      "database_specific": {"malicious-packages-origins": [{"source": "ossf-package-analysis"}]}
+    }
+  ],
+  "references": [{"type": "WEB", "url": "https://github.com/ossf/malicious-packages"}],
+  "database_specific": {"malicious-packages-origins": [{"source": "ossf-package-analysis"}]}
+}

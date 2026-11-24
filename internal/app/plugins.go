@@ -9,6 +9,8 @@ import (
 	_ "github.com/hungnm98/heimdall-cve/internal/report/json"
 	_ "github.com/hungnm98/heimdall-cve/internal/report/markdown"
 	_ "github.com/hungnm98/heimdall-cve/internal/runtime/golang"
+	_ "github.com/hungnm98/heimdall-cve/internal/source/endoflife"
+	_ "github.com/hungnm98/heimdall-cve/internal/source/osv"
 	_ "github.com/hungnm98/heimdall-cve/internal/store/memstore"
 	_ "github.com/hungnm98/heimdall-cve/internal/store/postgres"
 )

@@ -1,0 +1,22 @@
+{
+  "_comment": "Recorded-shape querybatch results: key is ecosystem|name|version as sent to OSV; value is the list of pages (page N>0 is requested with page_token \"page-N\").",
+  "Go|google.golang.org/protobuf|1.32.0": [
+    {"vulns": [{"id": "GO-2024-2611", "modified": "2024-06-04T16:37:09Z"}, {"id": "GHSA-8r3f-844c-mc37", "modified": "2024-06-07T18:35:40Z"}]}
+  ],
+  "Go|stdlib|1.22.1": [
+    {"vulns": [{"id": "GO-2024-2887", "modified": "2024-06-12T18:26:57Z"}]}
+  ],
+  "Go|golang.org/x/net|0.15.0": [
+    {"vulns": [{"id": "GO-2023-2102", "modified": "2024-05-20T16:03:47Z"}], "next_page_token": "page-1"},
+    {"vulns": [{"id": "GHSA-9wd0-wd00-test", "modified": "2023-11-01T00:00:00Z"}]}
+  ],
+  "npm|lodash|4.17.15": [
+    {"vulns": [{"id": "GHSA-p6mc-m468-83gw", "modified": "2024-03-01T05:12:31Z"}]}
+  ],
+  "npm|evil-helper|1.0.1": [
+    {"vulns": [{"id": "MAL-2024-1234", "modified": "2024-02-02T10:00:00Z"}]}
+  ],
+  "RubyGems|rack|2.2.8": [
+    {"vulns": [{"id": "GHSA-22f2-v57c-j9cx", "modified": "2024-05-01T12:00:00Z"}]}
+  ]
+}
