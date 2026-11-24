@@ -146,12 +146,32 @@ func (s *Store) SaveAgentAdvisory(_ context.Context, a *model.AgentAdvisory) err
 	if in.agentAdvs == nil {
 		in.agentAdvs = map[string]model.AgentAdvisory{}
 	}
-	cp := *a
-	cp.Evidence = slices.Clone(a.Evidence)
-	cp.Advisory.Aliases = slices.Clone(a.Advisory.Aliases)
-	cp.Advisory.Affected = slices.Clone(a.Advisory.Affected)
-	in.agentAdvs[a.Advisory.ID] = cp
+	in.agentAdvs[a.Advisory.ID] = cloneAgentAdvisory(*a)
 	return nil
+}
+
+// cloneAgentAdvisory deep-copies a so the store never shares state with callers.
+func cloneAgentAdvisory(a model.AgentAdvisory) model.AgentAdvisory {
+	a.Evidence = slices.Clone(a.Evidence)
+	adv := &a.Advisory
+	adv.Aliases = slices.Clone(adv.Aliases)
+	adv.References = slices.Clone(adv.References)
+	adv.Sources = slices.Clone(adv.Sources)
+	if adv.Withdrawn != nil {
+		w := *adv.Withdrawn
+		adv.Withdrawn = &w
+	}
+	adv.Affected = slices.Clone(adv.Affected)
+	for i := range adv.Affected {
+		adv.Affected[i].Ranges = slices.Clone(adv.Affected[i].Ranges)
+		adv.Affected[i].Versions = slices.Clone(adv.Affected[i].Versions)
+	}
+	return a
+}
+
+func cloneAnalysis(a model.LibraryAnalysis) model.LibraryAnalysis {
+	a.Evidence = slices.Clone(a.Evidence)
+	return a
 }
 
 func (s *Store) ListAgentAdvisories(context.Context) ([]model.AgentAdvisory, error) {
@@ -160,7 +180,7 @@ func (s *Store) ListAgentAdvisories(context.Context) ([]model.AgentAdvisory, err
 	defer in.mu.Unlock()
 	out := make([]model.AgentAdvisory, 0, len(in.agentAdvs))
 	for _, a := range in.agentAdvs {
-		out = append(out, a)
+		out = append(out, cloneAgentAdvisory(a))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Advisory.ID < out[j].Advisory.ID })
 	return out, nil
@@ -172,9 +192,7 @@ func (s *Store) SaveAnalysis(_ context.Context, a *model.LibraryAnalysis) error 
 	defer in.mu.Unlock()
 	in.seq++
 	a.ID = in.seq
-	cp := *a
-	cp.Evidence = slices.Clone(a.Evidence)
-	in.analyses = append(in.analyses, cp)
+	in.analyses = append(in.analyses, cloneAnalysis(*a))
 	return nil
 }
 
@@ -190,7 +208,7 @@ func (s *Store) LatestAnalyses(_ context.Context, f store.AnalysisFilter) ([]mod
 	for _, a := range latest {
 		if (f.Ecosystem == "" || a.Ecosystem == f.Ecosystem) && (f.Name == "" || a.Name == f.Name) &&
 			(f.Verdict == "" || a.Verdict == f.Verdict) {
-			out = append(out, a)
+			out = append(out, cloneAnalysis(a))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -212,7 +230,7 @@ func (s *Store) AnalysisHistory(_ context.Context, eco model.Ecosystem, name str
 	var out []model.LibraryAnalysis
 	for i := len(in.analyses) - 1; i >= 0; i-- {
 		if a := in.analyses[i]; a.Ecosystem == eco && a.Name == name {
-			out = append(out, a)
+			out = append(out, cloneAnalysis(a))
 			if limit > 0 && len(out) == limit {
 				break
 			}
