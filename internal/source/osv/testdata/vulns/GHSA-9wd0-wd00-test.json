@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.6.0",
+  "id": "GHSA-9wd0-wd00-test",
+  "modified": "2023-11-01T00:00:00Z",
+  "published": "2023-10-20T00:00:00Z",
+  "withdrawn": "2023-11-01T00:00:00Z",
+  "aliases": [],
+  "summary": "Withdrawn advisory (duplicate)",
+  "affected": [
+    {
+      "package": {"ecosystem": "Go", "name": "golang.org/x/net"},
+      "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "0.16.0"}]}]
+    }
+  ],
+  "database_specific": {"severity": "LOW"}
+}

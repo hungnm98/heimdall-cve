@@ -4,6 +4,8 @@ package app
 // To add a plugin: create its package, then add one blank import here.
 import (
 	_ "github.com/hungnm98/heimdall-cve/internal/jobs/inline"
+	_ "github.com/hungnm98/heimdall-cve/internal/source/endoflife"
+	_ "github.com/hungnm98/heimdall-cve/internal/source/osv"
 	_ "github.com/hungnm98/heimdall-cve/internal/store/memstore"
 	_ "github.com/hungnm98/heimdall-cve/internal/store/postgres"
 )
