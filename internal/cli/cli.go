@@ -61,6 +61,7 @@ func NewRoot(stdout, stderr io.Writer) *cobra.Command {
 		newConfigCmd(g),
 		newDBCmd(g),
 		newPluginsCmd(),
+		newWorkerCmd(g), newSecretsCmd(g),
 	)
 	return root
 }
