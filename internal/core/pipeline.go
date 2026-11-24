@@ -115,6 +115,8 @@ func (p *Pipeline) scan(ctx context.Context, req ScanRequest, prog Progress, run
 		cmps[e.Name()] = e.Versions()
 	}
 
+	p.saveInventory(ctx, results, prog)
+
 	// Standard library vulnerabilities come from the declared Go versions.
 	for _, r := range results {
 		r.graphs = append(r.graphs, stdlibGraphs(r.runtimes)...)
@@ -394,7 +396,77 @@ func (p *Pipeline) queryVulns(ctx context.Context, results []*repoResult, prog P
 		prog.Event("info", "", fmt.Sprintf("source %s: %d packages, %d advisories", s.Name(), len(pkgs), len(got)))
 		advs = append(advs, got...)
 	}
+	advs = append(advs, p.agentAdvisories(ctx, byEco, prog, run)...)
 	return dedup.Merge(advs)
+}
+
+// agentAdvisories returns the advisories AI agents submitted (store.Intel)
+// for packages of this run, as the unverified "agent" source.
+func (p *Pipeline) agentAdvisories(ctx context.Context, byEco map[model.Ecosystem]map[string]model.Package, prog Progress, run *model.ScanRun) []model.Advisory {
+	in, ok := p.Store.(store.Intel)
+	if !ok {
+		return nil
+	}
+	start := time.Now()
+	all, err := in.ListAgentAdvisories(ctx)
+	if len(all) == 0 && err == nil {
+		return nil
+	}
+	run.Sources = append(run.Sources, health(model.AgentSource, err, 1, start))
+	if err != nil {
+		prog.Event("warn", "", fmt.Sprintf("agent advisories: %v", err))
+		return nil
+	}
+	names := map[string]bool{}
+	for eco, m := range byEco {
+		for _, pk := range m {
+			names[string(eco)+"|"+pk.Name] = true
+		}
+	}
+	var out []model.Advisory
+	for _, a := range all {
+		adv := a.Advisory
+		match := false
+		for _, af := range adv.Affected {
+			match = match || names[string(af.Ecosystem)+"|"+af.Name]
+		}
+		if !match || adv.Withdrawn != nil {
+			continue
+		}
+		adv.Sources, adv.Verified = []string{model.AgentSource}, false
+		out = append(out, adv)
+	}
+	if len(out) > 0 {
+		prog.Event("info", "", fmt.Sprintf("source %s: %d advisories submitted by AI agents (unverified)", model.AgentSource, len(out)))
+	}
+	return out
+}
+
+// saveInventory records what each scanned repo depends on (store.Intel),
+// for MCP get_inventory and the agent analysis queue.
+func (p *Pipeline) saveInventory(ctx context.Context, results []*repoResult, prog Progress) {
+	in, ok := p.Store.(store.Intel)
+	if !ok {
+		return
+	}
+	now := p.now()
+	for _, r := range results {
+		if r.failed {
+			continue
+		}
+		var items []model.InventoryItem
+		for _, g := range r.graphs {
+			for _, d := range g.Dependencies {
+				items = append(items, model.InventoryItem{
+					Repo: r.repo.FullName(), ManifestPath: g.ManifestPath, Package: d.Package,
+					Direct: d.Direct, Scope: d.Scope, Private: d.Private, Unresolvable: d.Unresolvable,
+				})
+			}
+		}
+		if err := in.ReplaceInventory(ctx, r.repo.FullName(), items, now); err != nil {
+			prog.Event("warn", r.repo.FullName(), fmt.Sprintf("save inventory: %v", err))
+		}
+	}
 }
 
 type rtKey struct{ name, version string }

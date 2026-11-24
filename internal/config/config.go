@@ -38,6 +38,17 @@ type Config struct {
 	Server         Server            `mapstructure:"server"`
 	Jobs           Plugin            `mapstructure:"jobs"` // queue backend: inline | asynq
 	Secrets        SecretsConfig     `mapstructure:"secrets"`
+	MCP            MCPConfig         `mapstructure:"mcp"`
+}
+
+// MCPConfig controls what AI agents may do through `heimdall mcp`.
+// Everything that writes is off by default.
+type MCPConfig struct {
+	AllowAgentWrites bool   `mapstructure:"allow_agent_writes"` // submit_advisory / submit_analysis
+	AllowNotify      bool   `mapstructure:"allow_notify"`       // notify_user
+	AllowScan        bool   `mapstructure:"allow_scan"`         // scan_target / scan_repo (queue jobs)
+	NotifyDailyLimit int    `mapstructure:"notify_daily_limit"`
+	Listen           string `mapstructure:"listen"` // streamable HTTP transport address
 }
 
 // Workspace is where repo content is cached between scans: git mirrors (SSH
@@ -151,6 +162,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.listen", "127.0.0.1:8080")
 	v.SetDefault("jobs.type", "inline")
 	v.SetDefault("secrets.master_key_env", "HEIMDALL_MASTER_KEY")
+	v.SetDefault("mcp.notify_daily_limit", 20)
+	v.SetDefault("mcp.listen", "127.0.0.1:8090")
 }
 
 // Load reads a config file (.yaml, .yml or .json). An empty path searches

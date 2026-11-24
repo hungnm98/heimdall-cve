@@ -32,6 +32,7 @@ type Store struct {
 	repoStates map[string]model.RepoState
 	notified   map[string]time.Time
 	cat        catalog // store.Catalog state (catalog.go)
+	intel      intel   // store.Intel state (intel.go)
 }
 
 var _ store.Store = (*Store)(nil)

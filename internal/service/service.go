@@ -24,6 +24,8 @@ var (
 	ErrConflict    = store.ErrConflict
 	ErrReadOnly    = errors.New("read-only: defined in the config file")
 	ErrUnavailable = errors.New("unavailable")
+	ErrForbidden   = errors.New("forbidden: disabled by configuration")
+	ErrRateLimited = errors.New("rate limited")
 )
 
 // ValidationError lists invalid input fields (HTTP 400 with field details).
@@ -63,6 +65,8 @@ type Services struct {
 	Runs         Runs
 	Jobs         Jobs
 	System       System
+	Intel        Intel     // nil when the store has no store.Intel
+	Messenger    Messenger // nil when the store has no store.Intel
 }
 
 // ---- dashboard ----
