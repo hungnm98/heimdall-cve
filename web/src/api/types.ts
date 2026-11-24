@@ -1,0 +1,42 @@
+import type { components, operations } from "./schema";
+
+type S = components["schemas"];
+
+export type Meta = S["Meta"];
+export type Problem = S["Problem"];
+export type Severity = S["Severity"];
+export type FindingKind = S["FindingKind"];
+export type FindingStatus = S["FindingStatus"];
+export type BumpType = S["BumpType"];
+export type Origin = S["Origin"];
+export type TargetKind = S["TargetKind"];
+export type JobStatus = S["JobStatus"];
+export type RunStatus = S["RunStatus"];
+export type SupportStatus = S["SupportStatus"];
+export type RepoFilter = S["RepoFilter"];
+export type TargetInput = S["TargetInput"];
+export type Target = S["Target"];
+export type AuthProfileInput = S["AuthProfileInput"];
+export type AuthProfile = S["AuthProfile"];
+export type ConnectionTest = S["ConnectionTest"];
+export type Repo = S["Repo"];
+export type RepoRecord = S["RepoRecord"];
+export type RepoDetail = S["RepoDetail"];
+export type RuntimeStatus = S["RuntimeStatus"];
+export type UpgradeItem = S["UpgradeItem"];
+export type Finding = S["Finding"];
+export type FindingDetail = S["FindingDetail"];
+export type Suppression = S["Suppression"];
+export type SourceHealth = S["SourceHealth"];
+export type ScanRun = S["ScanRun"];
+export type Diff = S["Diff"];
+export type JobRequest = S["JobRequest"];
+export type Job = S["Job"];
+export type JobEvent = S["JobEvent"];
+export type DashboardSummary = S["DashboardSummary"];
+export type SourceStatus = S["SourceStatus"];
+export type NotifierStatus = S["NotifierStatus"];
+export type AuditEntry = S["AuditEntry"];
+
+export type FindingsQuery = NonNullable<operations["listFindings"]["parameters"]["query"]>;
+export type SuppressInput = operations["suppressFinding"]["requestBody"]["content"]["application/json"];
