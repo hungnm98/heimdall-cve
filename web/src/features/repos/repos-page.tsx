@@ -3,28 +3,38 @@ import { getRouteApi, Link } from "@tanstack/react-router";
 import { Lock, Play, Search } from "lucide-react";
 import * as React from "react";
 import { reposQuery, targetsQuery } from "@/api/queries";
+import type { RepoSort } from "@/api/types";
 import { SeverityCounts } from "@/components/badges";
 import { EmptyState, ErrorState, LoadMore, PageHeader, RelativeTime, TableSkeleton } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SortableTH, type SortState } from "@/components/ui/sortable-header";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { useScan } from "@/features/jobs/use-scan";
 
 const route = getRouteApi("/repos");
 
+const DEFAULT_REPO_SORT: SortState<RepoSort> = { key: "name", order: "asc" };
+
 export function ReposPage() {
-  const { q: search } = route.useSearch();
+  const { q: search, sort, order } = route.useSearch();
   const navigate = route.useNavigate();
   const [text, setText] = React.useState(search ?? "");
   React.useEffect(() => setText(search ?? ""), [search]);
   React.useEffect(() => {
     const t = setTimeout(() => {
-      if ((text.trim() || undefined) !== search) void navigate({ search: { q: text.trim() || undefined }, replace: true });
+      if ((text.trim() || undefined) !== search) void navigate({ search: (p) => ({ ...p, q: text.trim() || undefined }), replace: true });
     }, 300);
     return () => clearTimeout(t);
   }, [text, search, navigate]);
 
-  const q = useInfiniteQuery(reposQuery({ q: search }));
+  // Sorted on the server: the list is paginated (open counts are per page, so not sortable).
+  const q = useInfiniteQuery(reposQuery({ q: search, sort, order }));
+  const repoSort: SortState<RepoSort> = { key: sort ?? "name", order: order ?? (sort === "last_scanned" ? "desc" : "asc") };
+  const onSort = (s: SortState<RepoSort>) => {
+    const isDefault = s.key === DEFAULT_REPO_SORT.key && s.order === DEFAULT_REPO_SORT.order;
+    void navigate({ search: (p) => ({ ...p, sort: isDefault ? undefined : s.key, order: isDefault ? undefined : s.order }), replace: true });
+  };
   const targets = useQuery(targetsQuery());
   const labelOf = (id: number) => targets.data?.items.find((t) => t.id === id)?.label ?? `#${id}`;
   const repos = q.data?.pages.flatMap((p) => p.items) ?? [];
@@ -64,11 +74,15 @@ export function ReposPage() {
             <caption className="sr-only">Repositories</caption>
             <THead>
               <tr>
-                <TH>Repository</TH>
+                <SortableTH sortKey="name" first="asc" sort={repoSort} onSort={onSort}>
+                  Repository
+                </SortableTH>
                 <TH>Open findings</TH>
                 <TH className="hidden md:table-cell">Target</TH>
                 <TH className="hidden sm:table-cell">Branch</TH>
-                <TH>Last scan</TH>
+                <SortableTH sortKey="last_scanned" first="desc" sort={repoSort} onSort={onSort}>
+                  Last scan
+                </SortableTH>
                 <TH>
                   <span className="sr-only">Actions</span>
                 </TH>

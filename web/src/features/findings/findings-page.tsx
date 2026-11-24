@@ -4,10 +4,22 @@ import { SearchX } from "lucide-react";
 import { findingsQuery } from "@/api/queries";
 import { EmptyState, ErrorState, LoadMore, PageHeader, TableSkeleton } from "@/components/common";
 import { Button } from "@/components/ui/button";
-import { FindingsFilters, hasFilters, toFindingsQuery } from "./filters";
-import { FindingsTable } from "./findings-table";
+import { clearFilters, type FindingSearch, FindingsFilters, hasFilters, toFindingsQuery } from "./filters";
+import { DEFAULT_FINDING_SORT, FINDING_SORT_FIRST, FindingsTable, type FindingSortState } from "./findings-table";
 
 const route = getRouteApi("/findings");
+
+/** The sort shown by the table for the URL's sort/order (absent: the API default). */
+export function sortOfSearch(s: FindingSearch): FindingSortState {
+  const key = s.sort ?? DEFAULT_FINDING_SORT.key;
+  return { key, order: s.order ?? FINDING_SORT_FIRST[key] };
+}
+
+/** URL sort/order for a table sort; the API default leaves the URL clean. */
+export function searchOfSort(s: FindingSortState): Pick<FindingSearch, "sort" | "order"> {
+  const isDefault = s.key === DEFAULT_FINDING_SORT.key && s.order === DEFAULT_FINDING_SORT.order;
+  return isDefault ? { sort: undefined, order: undefined } : { sort: s.key, order: s.order };
+}
 
 export function FindingsPage() {
   const search = route.useSearch();
@@ -19,7 +31,7 @@ export function FindingsPage() {
     <>
       <PageHeader
         title="Findings"
-        description="Vulnerable dependencies, malicious packages and end-of-life runtimes, ordered by severity."
+        description="Vulnerable dependencies, malicious packages and end-of-life runtimes, worst first. Sort by any column with an arrow."
       />
       <FindingsFilters />
       {q.isPending ? (
@@ -33,7 +45,7 @@ export function FindingsPage() {
             title="No findings match these filters"
             description="Try a lower minimum severity, another status, or clear the filters."
             action={
-              <Button variant="outline" onClick={() => void navigate({ search: {}, replace: true })}>
+              <Button variant="outline" onClick={() => void navigate({ search: clearFilters, replace: true })}>
                 Clear filters
               </Button>
             }
@@ -51,7 +63,13 @@ export function FindingsPage() {
         )
       ) : (
         <>
-          <FindingsTable findings={findings} virtualize caption="Findings" />
+          <FindingsTable
+            findings={findings}
+            virtualize
+            caption="Findings"
+            sort={sortOfSearch(search)}
+            onSortChange={(s) => void navigate({ search: (prev) => ({ ...prev, ...searchOfSort(s) }), replace: true })}
+          />
           <LoadMore
             shown={findings.length}
             hasNextPage={q.hasNextPage}

@@ -110,8 +110,8 @@ Spec OpenAPI là hợp đồng giữa backend và UI. TS types sinh bằng `open
 | Dashboard | `GET /dashboard` (đếm theo severity/trạng thái, xu hướng N ngày, runtime EOL, source unhealthy, job đang chạy) |
 | Targets | `GET/POST /targets`, `GET/PATCH/DELETE /targets/{id}`, `POST /targets/preview` (liệt kê thử repo trước khi lưu) |
 | Auth profiles | `GET/POST /auth-profiles`, `PATCH/DELETE /auth-profiles/{id}`, `PUT /auth-profiles/{id}/secret`, `POST /auth-profiles/{id}/test` |
-| Repos | `GET /repos`, `GET /repos/{owner}/{name}` (finding, runtime, upgrade plan, lần scan cuối) |
-| Findings | `GET /findings` (filter + **cursor pagination**), `GET /findings/{id}`, `POST /findings/{id}/suppress` (lý do + hạn bắt buộc), `DELETE /findings/{id}/suppress` |
+| Repos | `GET /repos` (`sort=name\|last_scanned`, `order=asc\|desc`), `GET /repos/{owner}/{name}` (finding, runtime, upgrade plan, lần scan cuối) |
+| Findings | `GET /findings` (filter + `sort=severity\|priority\|name\|first_seen\|repo`, `order=asc\|desc` + **cursor pagination**), `GET /findings/{id}`, `POST /findings/{id}/suppress` (lý do + hạn bắt buộc), `DELETE /findings/{id}/suppress` |
 | Scans | `GET /runs`, `GET /runs/{id}`, `GET /runs/{id}/diff?against=` |
 | Jobs | `POST /jobs` (`{target_id}` / `{repo_url, auth_profile_id, branch}` / `{}` = tất cả), `GET /jobs`, `GET /jobs/{id}`, `POST /jobs/{id}/cancel`, `GET /jobs/{id}/events` (SSE) |
 | Hệ thống | `GET /sources`, `GET /notifiers`, `POST /notifiers/{name}/test`, `GET /audit` |
@@ -119,7 +119,8 @@ Spec OpenAPI là hợp đồng giữa backend và UI. TS types sinh bằng `open
 
 - Dùng router `net/http` của stdlib (Go 1.22+ đã hỗ trợ method + path pattern), không thêm framework.
 - Lỗi theo RFC 9457 (`application/problem+json`).
-- Danh sách lớn dùng **keyset pagination** (theo `severity_rank, repo, id`), không dùng OFFSET, nên vẫn nhanh khi có hàng triệu finding.
+- Danh sách lớn dùng **keyset pagination** (mặc định theo `severity_rank, repo, id`), không dùng OFFSET, nên vẫn nhanh khi có hàng triệu finding.
+- Sort của finding chạy **trên server** (`store.FindingSort`): mỗi thứ tự là `(khoá, id)` cùng chiều (riêng severity: `severity_rank, repo, id`, asc là đảo ngược hoàn toàn của desc), có index `(status, khoá, id)` (migration `0009_finding_sort.sql`, thêm cột `priority`, `sort_name`). `name` = tên package, không có thì tên runtime, không có nữa thì advisory id (chữ thường). Cursor mang theo sort + order; dùng cursor của thứ tự khác (hoặc cursor cũ) → 400, client bắt đầu lại từ trang đầu. Repo sort được theo `name` và `last_scanned` (số finding mở tính theo trang nên không sort được trên server).
 
 ## 7. UI (React SPA)
 
@@ -139,6 +140,11 @@ Build ra `web/dist`, nhúng bằng `go:embed` trong `internal/webui`; SPA fallba
 | Settings | Source (health, lần refresh), notifier, audit log | Gửi thử Slack |
 
 Yêu cầu chung: responsive, có dark mode, điều hướng bằng bàn phím, có trạng thái loading/empty/error rõ ràng, filter giữ trên URL (chia sẻ link được).
+
+Sort bảng: header cột sort được là nút trong `th` (`SortableTH`, `web/src/components/ui/sortable-header.tsx`) có icon chưa sort / tăng / giảm và `aria-sort`. Lần bấm đầu: giảm dần cho severity, priority, ngày; tăng dần cho tên/repo; bấm lại thì đảo chiều.
+- Danh sách phân trang (Findings, Repos): sort trên server, giữ trên URL (`?sort=priority&order=desc`; thứ tự mặc định thì URL không có tham số). Không bao giờ sort riêng trang đã tải.
+- Danh sách đã nằm đủ trong bộ nhớ (targets, auth profiles, preview repo, upgrade plan, runtime, source của run, top 10 dashboard, job đang chạy, findings trong repo/diff của run): sort phía client (`useClientSort`, hoặc `FindingsTable` không truyền `onSortChange`).
+- Runs, jobs, audit: phân trang, luôn mới nhất trước; header chỉ hiện thứ tự đó (`SortedTH`), không đổi được.
 
 ## 8. Bảo mật khi không có login
 

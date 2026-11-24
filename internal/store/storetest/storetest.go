@@ -6,8 +6,10 @@ package storetest
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -35,6 +37,7 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 	t.Run("FindingLifecycle", func(t *testing.T) { testLifecycle(t, open(t)) })
 	t.Run("DuplicateAndSuppressed", func(t *testing.T) { testDuplicateAndSuppressed(t, open(t)) })
 	t.Run("ListFindingsFilter", func(t *testing.T) { testFilter(t, open(t)) })
+	t.Run("ListFindingsSort", func(t *testing.T) { testFindingSort(t, open(t)) })
 	t.Run("RepoState", func(t *testing.T) { testRepoState(t, open(t)) })
 	t.Run("Branches", func(t *testing.T) { testBranches(t, open(t)) })
 	t.Run("Snapshots", func(t *testing.T) { testSnapshots(t, open(t)) })
@@ -266,7 +269,7 @@ func testFilter(t *testing.T, s store.Store) {
 			break
 		}
 		pages = append(pages, page[0].ID)
-		after = store.FindingCursor(page[0])
+		after = store.FindingCursor(page[0], store.FindingFilter{})
 	}
 	if len(pages) != 3 || pages[0] != crit.ID || pages[1] != hi.ID || pages[2] != lo.ID {
 		t.Fatalf("pagination = %v, want [crit hi lo]", pages)
@@ -285,6 +288,129 @@ func testFilter(t *testing.T, s store.Store) {
 			t.Fatal(err)
 		}
 		wantIDs(t, "query "+q, got, aliased)
+	}
+}
+
+func testFindingSort(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	a := F("o/b", "Zeta", "v1", "GO-1", model.SeverityHigh)
+	a.Priority = 50
+	b := F("o/a", "alpha", "v1", "GO-2", model.SeverityHigh)
+	b.Priority = 90
+	c := model.Finding{ // runtime: no package, named after the runtime
+		Kind: model.KindRuntime, Provider: "github", Repo: "o/c", ManifestPath: ".nvmrc", AdvisoryID: "EOL-NODE-16",
+		Severity: model.SeverityCritical, Priority: 50, Runtime: &model.RuntimeStatus{Runtime: model.Runtime{Name: "node", Version: "16"}},
+	}
+	c.ComputeID()
+	d := model.Finding{ // no package, no runtime: named after the advisory
+		Kind: model.KindSecret, Provider: "github", Repo: "o/a", ManifestPath: "config.yml", AdvisoryID: "GHSA-XXXX",
+		Severity: model.SeverityLow, Priority: 10,
+	}
+	d.ComputeID()
+	e := F("o/b", "beta", "v1", "GO-3", model.SeverityHigh)
+	e.Priority = 70
+	repos := []string{"o/a", "o/b", "o/c"}
+	record(t, s, repos, t0, a, b)
+	record(t, s, repos, t0.Add(time.Hour), a, b, c, d)
+	record(t, s, repos, t0.Add(2*time.Hour), a, b, c, d, e)
+
+	// byID orders findings that tie on the sort key by ID (desc when reverse).
+	byID := func(reverse bool, fs ...model.Finding) []model.Finding {
+		sort.Slice(fs, func(i, j int) bool { return (fs[i].ID < fs[j].ID) != reverse })
+		return fs
+	}
+	cat := func(parts ...[]model.Finding) []model.Finding {
+		var out []model.Finding
+		for _, p := range parts {
+			out = append(out, p...)
+		}
+		return out
+	}
+	one := func(f model.Finding) []model.Finding { return []model.Finding{f} }
+	rev := func(fs []model.Finding) []model.Finding {
+		out := make([]model.Finding, len(fs))
+		for i, f := range fs {
+			out[len(fs)-1-i] = f
+		}
+		return out
+	}
+
+	sevDesc := cat(one(c), one(b), byID(false, a, e), one(d)) // rank desc, repo asc, id asc
+	prioDesc := cat(one(b), one(e), byID(true, a, c), one(d))
+	nameAsc := []model.Finding{b, e, d, c, a} // alpha, beta, ghsa-xxxx, node, zeta
+	firstDesc := cat(one(e), byID(true, c, d), byID(true, a, b))
+	repoAsc := cat(byID(false, b, d), byID(false, a, e), one(c))
+	cases := []struct {
+		sort  store.FindingSort
+		order store.SortOrder
+		want  []model.Finding
+	}{
+		{"", "", sevDesc},
+		{store.SortSeverity, store.OrderDesc, sevDesc},
+		{store.SortSeverity, store.OrderAsc, rev(sevDesc)},
+		{store.SortPriority, "", prioDesc},
+		{store.SortPriority, store.OrderAsc, rev(prioDesc)},
+		{store.SortName, "", nameAsc},
+		{store.SortName, store.OrderDesc, rev(nameAsc)},
+		{store.SortFirstSeen, store.OrderDesc, firstDesc},
+		{store.SortFirstSeen, store.OrderAsc, rev(firstDesc)},
+		{store.SortRepo, store.OrderAsc, repoAsc},
+		{store.SortRepo, store.OrderDesc, rev(repoAsc)},
+	}
+	for _, tc := range cases {
+		name := string(tc.sort) + " " + string(tc.order)
+		flt := store.FindingFilter{Sort: tc.sort, Order: tc.order}
+		all, err := s.ListFindings(ctx, flt)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		wantOrder(t, name, all, tc.want)
+		// Keyset pagination across pages of 2 yields the same order.
+		var paged []model.Finding
+		for i := 0; i < 10; i++ {
+			flt.Limit = 2
+			page, err := s.ListFindings(ctx, flt)
+			if err != nil {
+				t.Fatalf("%s page %d: %v", name, i, err)
+			}
+			paged = append(paged, page...)
+			if len(page) < 2 {
+				break
+			}
+			flt.After = store.FindingCursor(page[len(page)-1], flt)
+		}
+		wantOrder(t, name+" paged", paged, tc.want)
+	}
+
+	// A cursor only works for the sort and order that issued it.
+	cur := store.FindingCursor(b, store.FindingFilter{Sort: store.SortPriority})
+	for _, flt := range []store.FindingFilter{
+		{Sort: store.SortName, After: cur},
+		{Sort: store.SortPriority, Order: store.OrderAsc, After: cur},
+		{After: base64.RawURLEncoding.EncodeToString([]byte("3\x00o/a\x00" + b.ID))}, // pre-sort format
+	} {
+		if _, err := s.ListFindings(ctx, flt); !errors.Is(err, store.ErrStaleCursor) {
+			t.Fatalf("mismatched cursor %+v: err = %v, want ErrStaleCursor", flt, err)
+		}
+	}
+	for _, flt := range []store.FindingFilter{{Sort: "cvss"}, {Order: "up"}} {
+		if _, err := s.ListFindings(ctx, flt); err == nil {
+			t.Fatalf("invalid sort %+v must fail", flt)
+		}
+	}
+}
+
+func wantOrder(t *testing.T, what string, got, want []model.Finding) {
+	t.Helper()
+	g, w := make([]string, len(got)), make([]string, len(want))
+	for i := range got {
+		g[i] = got[i].ID
+	}
+	for i := range want {
+		w[i] = want[i].ID
+	}
+	if strings.Join(g, ",") != strings.Join(w, ",") {
+		t.Fatalf("%s: got %v, want %v", what, g, w)
 	}
 }
 

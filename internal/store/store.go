@@ -6,11 +6,7 @@ package store
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
-	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/hungnm98/heimdall-cve/internal/model"
@@ -36,44 +32,14 @@ type FindingFilter struct {
 	// Query matches a package name substring (case-insensitive) or an exact
 	// advisory ID / alias (CVE-..., GHSA-..., GO-...).
 	Query string
+	// Sort and Order choose the order (see FindingSort); zero values mean
+	// severity desc (worst first, then repo, then id).
+	Sort  FindingSort
+	Order SortOrder
 	// After is an opaque keyset cursor (FindingCursor of the last item of the
-	// previous page). Results are ordered by severity desc, repo, id.
+	// previous page, for the same Sort and Order).
 	After string
 	Limit int
-}
-
-// FindingCursor returns the keyset cursor positioned after f.
-func FindingCursor(f model.Finding) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d\x00%s\x00%s", f.Severity.Rank(), f.Repo, f.ID)))
-}
-
-// ParseFindingCursor decodes a cursor into its sort key.
-func ParseFindingCursor(c string) (rank int, repo, id string, err error) {
-	b, err := base64.RawURLEncoding.DecodeString(c)
-	if err != nil {
-		return 0, "", "", fmt.Errorf("invalid cursor: %w", err)
-	}
-	parts := strings.SplitN(string(b), "\x00", 3)
-	if len(parts) != 3 {
-		return 0, "", "", errors.New("invalid cursor")
-	}
-	rank, err = strconv.Atoi(parts[0])
-	if err != nil {
-		return 0, "", "", errors.New("invalid cursor")
-	}
-	return rank, parts[1], parts[2], nil
-}
-
-// FindingAfter reports whether f sorts strictly after the cursor key.
-func FindingAfter(f model.Finding, rank int, repo, id string) bool {
-	r := f.Severity.Rank()
-	if r != rank {
-		return r < rank
-	}
-	if f.Repo != repo {
-		return f.Repo > repo
-	}
-	return f.ID > id
 }
 
 // Store persists Heimdall state. Implementations must be safe for concurrent use.

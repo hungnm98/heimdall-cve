@@ -513,6 +513,15 @@ func TestFindingsPaginationAndSuppress(t *testing.T) {
 	if _, err := e.svc.Findings.List(ctx, store.FindingFilter{After: "!!"}); fieldsOf(t, err)["cursor"] == "" {
 		t.Fatal("bad cursor")
 	}
+	if _, err := e.svc.Findings.List(ctx, store.FindingFilter{Sort: store.SortName, After: cursor}); fieldsOf(t, err)["cursor"] == "" {
+		t.Fatal("cursor of another sort must be rejected")
+	}
+	if _, err := e.svc.Findings.List(ctx, store.FindingFilter{Sort: "cvss"}); fieldsOf(t, err)["sort"] == "" {
+		t.Fatal("bad sort")
+	}
+	if _, err := e.svc.Findings.List(ctx, store.FindingFilter{Order: "up"}); fieldsOf(t, err)["order"] == "" {
+		t.Fatal("bad order")
+	}
 
 	id := seen[0]
 	if err := e.svc.Findings.Suppress(ctx, "carol", id, "  ", e.now.Add(-time.Hour)); err != nil {

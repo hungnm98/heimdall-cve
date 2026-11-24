@@ -239,6 +239,12 @@ func TestReadTools(t *testing.T) {
 	if page["next_cursor"] == "" {
 		t.Fatalf("expected a next page: %v", page)
 	}
+	if items := list(t, e.ok(t, "get_findings", map[string]any{"sort": "name", "order": "desc"}), "findings"); len(items) == 0 {
+		t.Fatal("get_findings sorted by name returned nothing")
+	}
+	if _, errText := e.call(t, "get_findings", map[string]any{"sort": "cvss"}); !strings.Contains(errText, "sort") {
+		t.Fatalf("bad sort: %s", errText)
+	}
 	if _, errText := e.call(t, "get_findings", map[string]any{"status": "gone"}); !strings.Contains(errText, "status") {
 		t.Fatalf("bad status error %q", errText)
 	}

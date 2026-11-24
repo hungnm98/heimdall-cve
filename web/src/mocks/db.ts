@@ -10,6 +10,7 @@ import type {
   DashboardSummary,
   Diff,
   Finding,
+  FindingSort,
   Job,
   JobEvent,
   JobRequest,
@@ -624,6 +625,22 @@ export function sortFindings<T extends Finding>(fs: T[]): T[] {
   return [...fs].sort(
     (a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity] || a.repo.localeCompare(b.repo) || a.id.localeCompare(b.id),
   );
+}
+
+const cmp = (a: string | number, b: string | number) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** GET /findings?sort=&order= as the server orders it (see store.FindingSort). */
+export function sortFindingsBy<T extends Finding>(fs: T[], sort: FindingSort, order: "asc" | "desc"): T[] {
+  if (sort === "severity") return order === "desc" ? sortFindings(fs) : sortFindings(fs).reverse(); // asc: exact reverse
+  const key: Record<Exclude<FindingSort, "severity">, (f: T) => string | number> = {
+    priority: (f) => f.priority ?? 0,
+    name: (f) => (f.package?.name || f.runtime?.name || f.advisory_id || "").toLowerCase(),
+    first_seen: (f) => Date.parse(f.first_seen),
+    repo: (f) => f.repo,
+  };
+  const get = key[sort];
+  const dir = order === "asc" ? 1 : -1;
+  return [...fs].sort((a, b) => dir * (cmp(get(a), get(b)) || cmp(a.id, b.id)));
 }
 
 function upgradePlan(fs: FindingRow[]): UpgradeItem[] {

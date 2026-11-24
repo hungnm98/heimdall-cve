@@ -11,10 +11,18 @@ import { EmptyState, ErrorState, PageHeader, RelativeTime, TableSkeleton } from 
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/misc";
+import { SortableTH, useClientSort } from "@/components/ui/sortable-header";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { useScan } from "@/features/jobs/use-scan";
 import { describeSchedule } from "@/lib/schedule";
 import { targetInputOf } from "./target-model";
+
+const TARGET_SORT = {
+  label: (t: Target) => t.label,
+  auth: (t: Target) => t.auth,
+  next_run: (t: Target) => (t.enabled && t.next_run_at ? Date.parse(t.next_run_at) : null),
+  enabled: (t: Target) => ((t.enabled ?? true) ? 1 : 0),
+};
 
 export function TargetsPage() {
   const q = useQuery(targetsQuery());
@@ -33,6 +41,7 @@ export function TargetsPage() {
     );
 
   const targets = q.data?.items ?? [];
+  const { sorted, sort, setSort } = useClientSort(targets, TARGET_SORT);
   const hasConfig = targets.some((t) => t.origin === "config");
 
   return (
@@ -74,15 +83,23 @@ export function TargetsPage() {
           <caption className="sr-only">Targets</caption>
           <THead>
             <tr>
-              <TH>Target</TH>
-              <TH className="hidden md:table-cell">Auth</TH>
-              <TH className="hidden sm:table-cell">Schedule</TH>
-              <TH>Enabled</TH>
+              <SortableTH sortKey="label" sort={sort} onSort={setSort}>
+                Target
+              </SortableTH>
+              <SortableTH sortKey="auth" sort={sort} onSort={setSort} className="hidden md:table-cell">
+                Auth
+              </SortableTH>
+              <SortableTH sortKey="next_run" sort={sort} onSort={setSort} className="hidden sm:table-cell">
+                Schedule
+              </SortableTH>
+              <SortableTH sortKey="enabled" first="desc" sort={sort} onSort={setSort}>
+                Enabled
+              </SortableTH>
               <TH className="text-right">Actions</TH>
             </tr>
           </THead>
           <TBody>
-            {targets.map((t) => {
+            {sorted.map((t) => {
               const ro = t.origin === "config";
               return (
                 <TR key={t.id}>

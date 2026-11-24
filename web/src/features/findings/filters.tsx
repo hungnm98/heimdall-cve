@@ -1,7 +1,7 @@
 import { getRouteApi } from "@tanstack/react-router";
 import { Search, X } from "lucide-react";
 import * as React from "react";
-import type { FindingKind, FindingsQuery, FindingStatus, Severity } from "@/api/types";
+import type { FindingKind, FindingSort, FindingsQuery, FindingStatus, Severity, SortOrder } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect } from "@/components/ui/input";
 import { isSeverity, SEVERITIES, SEVERITY_LABEL } from "@/lib/severity";
@@ -15,10 +15,15 @@ export interface FindingSearch {
   /** yyyy-mm-dd (UTC) */
   new_since?: string;
   q?: string;
+  /** Column the list is sorted by (server-side); absent = severity. */
+  sort?: FindingSort;
+  /** absent = the column's default order (see FINDING_SORT_FIRST). */
+  order?: SortOrder;
 }
 
 export const KINDS: FindingKind[] = ["dependency", "runtime", "code", "secret", "config"];
 export const STATUSES: FindingStatus[] = ["open", "fixed", "suppressed"];
+export const FINDING_SORTS: FindingSort[] = ["severity", "priority", "name", "first_seen", "repo"];
 
 const str = (v: unknown) =>
   typeof v === "string" && v.trim() !== "" ? v.trim() : typeof v === "number" ? String(v) : undefined;
@@ -38,6 +43,8 @@ export function parseFindingSearch(s: Record<string, unknown>): FindingSearch {
     kev,
     new_since: since && /^\d{4}-\d{2}-\d{2}$/.test(since) ? since : undefined,
     q: str(s.q),
+    sort: FINDING_SORTS.find((k) => k === s.sort),
+    order: s.order === "asc" || s.order === "desc" ? s.order : undefined,
   };
 }
 
@@ -51,12 +58,18 @@ export function toFindingsQuery(s: FindingSearch): FindingsQuery {
   if (s.kev !== undefined) q.kev = s.kev;
   if (s.new_since) q.new_since = `${s.new_since}T00:00:00Z`;
   if (s.q) q.q = s.q;
+  if (s.sort) q.sort = s.sort;
+  if (s.order) q.order = s.order;
   return q;
 }
 
-export function hasFilters(s: FindingSearch) {
-  return Object.values(s).some((v) => v !== undefined);
+/** Whether any filter is set (the sort is not a filter). */
+export function hasFilters({ sort: _sort, order: _order, ...filters }: FindingSearch) {
+  return Object.values(filters).some((v) => v !== undefined);
 }
+
+/** Search params with the filters cleared and the sort kept. */
+export const clearFilters = (s: FindingSearch): FindingSearch => ({ sort: s.sort, order: s.order });
 
 const route = getRouteApi("/findings");
 
@@ -218,7 +231,7 @@ export function FindingsFilters() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => void navigate({ search: {}, replace: true })}
+            onClick={() => void navigate({ search: clearFilters, replace: true })}
           >
             <X aria-hidden /> Clear filters
           </Button>

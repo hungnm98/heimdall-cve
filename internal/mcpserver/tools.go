@@ -78,7 +78,9 @@ type findingsIn struct {
 	PrimaryBranchOnly bool   `json:"primary_branch_only,omitempty" jsonschema:"only findings of each repo's primary (default or configured) branch"`
 	NewSince          string `json:"new_since,omitempty" jsonschema:"first seen at or after this time (RFC 3339 or YYYY-MM-DD)"`
 	Q                 string `json:"q,omitempty" jsonschema:"package name substring or exact advisory id / alias"`
-	Cursor            string `json:"cursor,omitempty" jsonschema:"next_cursor from the previous page"`
+	Sort              string `json:"sort,omitempty" jsonschema:"severity (default), priority, name, first_seen or repo"`
+	Order             string `json:"order,omitempty" jsonschema:"asc or desc (default desc for severity, priority, first_seen; asc for name, repo)"`
+	Cursor            string `json:"cursor,omitempty" jsonschema:"next_cursor from the previous page (same sort and order)"`
 	Limit             int    `json:"limit,omitempty" jsonschema:"page size (default 20, max 100)"`
 }
 
@@ -174,7 +176,7 @@ func (s *Server) addTools() {
 	addTool(s, "get_inventory", "Dependencies in use as last scanned (repo, manifest, package, version, direct). Items marked private are internal and must never be researched outside the organisation.", s.getInventory)
 	addTool(s, "get_analysis_queue", "Public libraries to analyze next, ranked: never analyzed or stale first, then direct dependencies, wide usage and open findings. Each item says why.", s.getAnalysisQueue)
 	addTool(s, "get_analyses", "Analysis history of one library, newest first.", s.getAnalyses)
-	addTool(s, "get_findings", "Search findings, worst first. Defaults to open findings. Paginated.", s.getFindings)
+	addTool(s, "get_findings", "Search findings, worst first (or by sort/order). Defaults to open findings. Paginated.", s.getFindings)
 	addTool(s, "get_finding", "One finding in full: advisory, aliases, references, fix versions, recommendation, suppression.", s.getFinding)
 	addTool(s, "triage_queue", "Open findings to assess next (HIGH+ by default, KEV and malicious always), without a fresh agent assessment, highest priority first. One item per advisory and package version covers every repo listed. Each item says why.", s.triageQueue)
 	addTool(s, "get_assessments", "Agent assessments of a finding (repo-wide and for its repo), newest first.", s.getAssessments)
@@ -282,7 +284,8 @@ func parseSince(v string) (time.Time, error) {
 
 func (s *Server) getFindings(ctx context.Context, _ service.Actor, in findingsIn) (any, error) {
 	f := store.FindingFilter{Repo: in.Repo, InKEV: in.KEV, Query: in.Q, After: in.Cursor, Limit: toolLimit(in.Limit),
-		Branch: in.Branch, DefaultBranchOnly: in.PrimaryBranchOnly}
+		Branch: in.Branch, DefaultBranchOnly: in.PrimaryBranchOnly,
+		Sort: store.FindingSort(strings.ToLower(in.Sort)), Order: store.SortOrder(strings.ToLower(in.Order))}
 	if in.Severity != "" {
 		if f.MinSeverity = model.ParseSeverity(in.Severity); f.MinSeverity == model.SeverityUnknown {
 			return nil, badArg("severity", "must be CRITICAL, HIGH, MEDIUM or LOW")

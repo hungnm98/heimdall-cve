@@ -7,7 +7,7 @@ import {
   Link,
   type RouterHistory,
 } from "@tanstack/react-router";
-import type { JobStatus } from "@/api/types";
+import type { JobStatus, RepoSort, SortOrder } from "@/api/types";
 import { EmptyState } from "@/components/common";
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
@@ -61,7 +61,11 @@ const findingRoute = createRoute({ getParentRoute: () => rootRoute, path: "/find
 const reposRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/repos",
-  validateSearch: (s: Record<string, unknown>): { q?: string } => ({ q: str(s.q) }),
+  validateSearch: (s: Record<string, unknown>): { q?: string; sort?: RepoSort; order?: SortOrder } => ({
+    q: str(s.q),
+    sort: s.sort === "name" || s.sort === "last_scanned" ? s.sort : undefined,
+    order: s.order === "asc" || s.order === "desc" ? s.order : undefined,
+  }),
   component: ReposPage,
 });
 

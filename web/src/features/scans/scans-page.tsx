@@ -6,6 +6,7 @@ import { RunStatusBadge, SeverityCounts } from "@/components/badges";
 import { EmptyState, ErrorState, LoadMore, PageHeader, RelativeTime, TableSkeleton } from "@/components/common";
 import { NativeSelect } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
+import { SortedTH } from "@/components/ui/sortable-header";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { JobsTable } from "@/features/jobs/jobs-table";
 import { formatDuration } from "@/lib/time";
@@ -19,7 +20,9 @@ function RunsTable({ runs }: { runs: ScanRun[] }) {
       <THead>
         <tr>
           <TH>Run</TH>
-          <TH>Started</TH>
+          <SortedTH order="desc" title="Newest first">
+            Started
+          </SortedTH>
           <TH>Status</TH>
           <TH className="hidden sm:table-cell">Duration</TH>
           <TH className="hidden md:table-cell">Repos</TH>

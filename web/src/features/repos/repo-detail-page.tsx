@@ -17,14 +17,30 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox, Input, NativeSelect } from "@/components/ui/input";
 import { Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
+import { SortableTH, useClientSort } from "@/components/ui/sortable-header";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { FindingsTable } from "@/features/findings/findings-table";
 import { useScan } from "@/features/jobs/use-scan";
+import { SEVERITY_RANK } from "@/lib/severity";
 import { repoUrl } from "@/lib/utils";
 
 const route = getRouteApi("/repos/$owner/$name");
 
+type PlanItem = RepoDetail["upgrade_plan"][number];
+const PLAN_SORT = {
+  severity: (u: PlanItem) => SEVERITY_RANK[u.severity],
+  package: (u: PlanItem) => u.package.name,
+};
+
+type RuntimeItem = RepoDetail["runtimes"][number];
+const RUNTIME_SORT = {
+  runtime: (r: RuntimeItem) => `${r.name} ${r.version}`,
+  support: (r: RuntimeItem) => r.status,
+  eol: (r: RuntimeItem) => r.eol_date,
+};
+
 function UpgradePlan({ plan }: { plan: RepoDetail["upgrade_plan"] }) {
+  const { sorted, sort, setSort } = useClientSort(plan, PLAN_SORT);
   if (plan.length === 0)
     return <EmptyState title="Nothing to upgrade" description="No open dependency finding has a recommended version." />;
   return (
@@ -32,15 +48,19 @@ function UpgradePlan({ plan }: { plan: RepoDetail["upgrade_plan"] }) {
       <caption className="sr-only">Upgrade plan</caption>
       <THead>
         <tr>
-          <TH>Severity</TH>
-          <TH>Package</TH>
+          <SortableTH sortKey="severity" first="desc" sort={sort} onSort={setSort}>
+            Severity
+          </SortableTH>
+          <SortableTH sortKey="package" sort={sort} onSort={setSort}>
+            Package
+          </SortableTH>
           <TH>Current → recommended</TH>
           <TH className="hidden md:table-cell">Advisories</TH>
           <TH>Command</TH>
         </tr>
       </THead>
       <TBody>
-        {plan.map((u) => (
+        {sorted.map((u) => (
           <TR key={`${u.manifest}|${u.package.name}`}>
             <TD>
               <SeverityBadge severity={u.severity} />
@@ -67,21 +87,28 @@ function UpgradePlan({ plan }: { plan: RepoDetail["upgrade_plan"] }) {
 }
 
 function Runtimes({ runtimes }: { runtimes: RepoDetail["runtimes"] }) {
+  const { sorted, sort, setSort } = useClientSort(runtimes, RUNTIME_SORT);
   if (runtimes.length === 0) return <EmptyState title="No runtimes detected" />;
   return (
     <Table>
       <caption className="sr-only">Runtimes</caption>
       <THead>
         <tr>
-          <TH>Runtime</TH>
-          <TH>Support</TH>
-          <TH>End of life</TH>
+          <SortableTH sortKey="runtime" sort={sort} onSort={setSort}>
+            Runtime
+          </SortableTH>
+          <SortableTH sortKey="support" sort={sort} onSort={setSort}>
+            Support
+          </SortableTH>
+          <SortableTH sortKey="eol" sort={sort} onSort={setSort}>
+            End of life
+          </SortableTH>
           <TH className="hidden sm:table-cell">Declared in</TH>
           <TH>Latest</TH>
         </tr>
       </THead>
       <TBody>
-        {runtimes.map((r) => (
+        {sorted.map((r) => (
           <TR key={`${r.name}|${r.origin}`}>
             <TD className="font-medium">
               {r.name} {r.version}
@@ -242,7 +269,12 @@ export function RepoDetailPage() {
         </TabsContent>
         <TabsContent value="findings">
           {findings.length ? (
-            <FindingsTable findings={findings} showRepo={false} caption={`Findings in ${repo.full_name}`} />
+            <FindingsTable
+              findings={findings}
+              showRepo={false}
+              caption={`Findings in ${repo.full_name}`}
+              initialSort={{ key: "severity", order: "desc" }}
+            />
           ) : (
             <EmptyState title="No findings" description="This repository has no known vulnerable dependencies." />
           )}

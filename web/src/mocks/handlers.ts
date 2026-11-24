@@ -1,6 +1,6 @@
 import { http, HttpResponse, type JsonBodyType } from "msw";
-import type { AuthProfileInput, FindingStatus, JobRequest, JobStatus, Severity, TargetInput } from "@/api/types";
-import { db, MockProblem, mockConfig, SEV_RANK, sortFindings } from "./db";
+import type { AuthProfileInput, FindingSort, FindingStatus, JobRequest, JobStatus, RepoRecord, Severity, TargetInput } from "@/api/types";
+import { db, MockProblem, mockConfig, SEV_RANK, sortFindingsBy } from "./db";
 
 /** Matches /api/v1 under any origin or path prefix. */
 const p = (path: string) => `*/api/v1${path}`;
@@ -47,18 +47,43 @@ async function bodyOf<T>(request: Request): Promise<T> {
   }
 }
 
-function page<T>(items: T[], url: URL) {
+/** Offset pagination; `order` (e.g. "priority:desc") is bound into the cursor like the server's keyset cursors. */
+function page<T>(items: T[], url: URL, order = "") {
   const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
   const cursor = url.searchParams.get("cursor");
+  const prefix = order ? `o:${order}:` : "o:";
   let offset = 0;
   if (cursor) {
-    const decoded = Number(atob(cursor).replace(/^o:/, ""));
+    let raw = "";
+    try {
+      raw = atob(cursor);
+    } catch {
+      // handled below
+    }
+    if (!raw.startsWith(prefix) || (!order && raw.slice(2).includes(":")))
+      throw new MockProblem(400, "Bad Request", "Invalid cursor", { cursor: "cursor does not match this sort order: restart from the first page" });
+    const decoded = Number(raw.slice(prefix.length));
     if (!Number.isFinite(decoded) || decoded < 0) throw new MockProblem(400, "Bad Request", "Invalid cursor", { cursor: "Invalid cursor" });
     offset = decoded;
   }
   const slice = items.slice(offset, offset + limit);
-  const next = offset + limit < items.length ? btoa(`o:${offset + limit}`) : undefined;
+  const next = offset + limit < items.length ? btoa(`${prefix}${offset + limit}`) : undefined;
   return { items: slice, next_cursor: next };
+}
+
+const FINDING_SORTS: readonly FindingSort[] = ["severity", "priority", "name", "first_seen", "repo"];
+
+/** Validates sort/order like the API (400 on unknown values) and applies the defaults. */
+function sortParams<K extends string>(sp: URLSearchParams, keys: readonly K[], fallback: K, firstAsc: readonly K[]) {
+  const s = sp.get("sort");
+  const o = sp.get("order");
+  const fields: Record<string, string> = {};
+  if (s && !keys.includes(s as K)) fields.sort = `must be ${keys.join(", ")}`;
+  if (o && o !== "asc" && o !== "desc") fields.order = "must be asc or desc";
+  if (Object.keys(fields).length) throw new MockProblem(400, "Bad Request", "Invalid sort", fields);
+  const sort = (s as K | null) ?? fallback;
+  const order: "asc" | "desc" = (o as "asc" | "desc" | null) ?? (firstAsc.includes(sort) ? "asc" : "desc");
+  return { sort, order };
 }
 
 const intParam = (v: string | readonly string[] | undefined) => Number(Array.isArray(v) ? v[0] : v);
@@ -137,11 +162,17 @@ export const handlers = [
       const url = new URL(request.url);
       const q = (url.searchParams.get("q") ?? "").toLowerCase();
       const target = url.searchParams.get("target_id");
+      const { sort, order } = sortParams(url.searchParams, ["name", "last_scanned"] as const, "name", ["name"]);
+      const dir = order === "asc" ? 1 : -1;
+      const scanned = (r: RepoRecord) => (r.last_scanned_at ? Date.parse(r.last_scanned_at) : -Infinity);
       const items = db.repos
         .filter((r) => (!q || r.full_name.toLowerCase().includes(q)) && (!target || r.target_id === Number(target)))
-        .sort((a, b) => a.full_name.localeCompare(b.full_name))
+        .sort(
+          (a, b) =>
+            dir * ((sort === "last_scanned" ? scanned(a) - scanned(b) : 0) || (a.full_name < b.full_name ? -1 : a.full_name > b.full_name ? 1 : 0)),
+        )
         .map((r) => db.repoRecord(r));
-      return page(items, url);
+      return page(items, url, `${sort}:${order}`);
     }),
   ),
   http.get(p("/repos/:owner/:name"), ({ params }) => handle(() => db.getRepo(String(params.owner), String(params.name)))),
@@ -157,12 +188,13 @@ export const handlers = [
       const newSince = sp.get("new_since");
       if (newSince && Number.isNaN(Date.parse(newSince))) fields.new_since = "Must be an RFC 3339 date-time";
       if (Object.keys(fields).length) throw new MockProblem(400, "Bad Request", "Invalid filter", fields);
+      const { sort, order } = sortParams(sp, FINDING_SORTS, "severity", ["name", "repo"]);
       const repo = sp.get("repo");
       const kind = sp.get("kind");
       const status = sp.get("status") as FindingStatus | null;
       const kev = sp.get("kev");
       const q = (sp.get("q") ?? "").trim().toLowerCase();
-      const items = sortFindings(
+      const items = sortFindingsBy(
         db.findings.filter(
           (f) =>
             (!repo || f.repo === repo) &&
@@ -176,8 +208,10 @@ export const handlers = [
               f.advisory_id?.toLowerCase() === q ||
               (f.aliases ?? []).some((a) => a.toLowerCase() === q)),
         ),
+        sort,
+        order,
       ).map((f) => db.publicFinding(f));
-      return page(items, url);
+      return page(items, url, `${sort}:${order}`);
     }),
   ),
   http.get(p("/findings/:id"), ({ params }) => handle(() => db.getFinding(String(params.id)))),

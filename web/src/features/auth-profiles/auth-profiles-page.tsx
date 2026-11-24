@@ -11,8 +11,16 @@ import { EmptyState, ErrorState, PageHeader, RelativeTime, TableSkeleton } from 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { SortableTH, useClientSort } from "@/components/ui/sortable-header";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { AuthProfileForm } from "./auth-profile-form";
+
+const PROFILE_SORT = {
+  name: (p: AuthProfile) => p.name,
+  type: (p: AuthProfile) => p.type,
+  used_by: (p: AuthProfile) => p.used_by?.length ?? 0,
+  updated: (p: AuthProfile) => Date.parse(p.updated_at),
+};
 
 type Editing = { mode: "create" } | { mode: "edit"; profile: AuthProfile } | null;
 
@@ -29,6 +37,7 @@ export function AuthProfilesPage() {
 
   const labelOf = (id: number) => targets.data?.items.find((t) => t.id === id)?.label ?? `#${id}`;
   const profiles = q.data?.items ?? [];
+  const { sorted, sort, setSort } = useClientSort(profiles, PROFILE_SORT);
 
   const runTest = (name: string) => {
     setTesting(name);
@@ -74,16 +83,24 @@ export function AuthProfilesPage() {
           <caption className="sr-only">Auth profiles</caption>
           <THead>
             <tr>
-              <TH>Name</TH>
-              <TH>Type</TH>
+              <SortableTH sortKey="name" sort={sort} onSort={setSort}>
+                Name
+              </SortableTH>
+              <SortableTH sortKey="type" sort={sort} onSort={setSort}>
+                Type
+              </SortableTH>
               <TH>Secret</TH>
-              <TH className="hidden md:table-cell">Used by</TH>
-              <TH className="hidden lg:table-cell">Updated</TH>
+              <SortableTH sortKey="used_by" first="desc" sort={sort} onSort={setSort} className="hidden md:table-cell">
+                Used by
+              </SortableTH>
+              <SortableTH sortKey="updated" first="desc" sort={sort} onSort={setSort} className="hidden lg:table-cell">
+                Updated
+              </SortableTH>
               <TH className="text-right">Actions</TH>
             </tr>
           </THead>
           <TBody>
-            {profiles.map((p) => {
+            {sorted.map((p) => {
               const ro = p.origin === "config";
               const used = p.used_by ?? [];
               return (

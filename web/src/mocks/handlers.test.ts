@@ -17,6 +17,20 @@ describe("mock API", () => {
     expect([...ranks].sort((a, b) => b - a)).toEqual(ranks);
   });
 
+  it("sorts findings like the API, binding the cursor to the sort", async () => {
+    const first = await unwrap(api.GET("/findings", { params: { query: { limit: 10, sort: "priority", order: "asc" } } }));
+    const rest = await unwrap(
+      api.GET("/findings", { params: { query: { limit: 500, sort: "priority", order: "asc", cursor: first.next_cursor } } }),
+    );
+    const prios = [...first.items, ...rest.items].map((f) => f.priority ?? 0);
+    expect(prios).toHaveLength(db.findings.length);
+    expect([...prios].sort((a, b) => a - b)).toEqual(prios);
+    const other = await api.GET("/findings", { params: { query: { sort: "name", cursor: first.next_cursor } } });
+    expect(other.response.status).toBe(400);
+    const bad = await api.GET("/findings", { params: { query: { sort: "cvss" as never } } });
+    expect(bad.response.status).toBe(400);
+  });
+
   it("covers every severity, KEV, malicious, unverified and EOL runtimes", () => {
     const sev = new Set(db.findings.map((f) => f.severity));
     for (const s of ["CRITICAL", "HIGH", "MEDIUM", "LOW"]) expect(sev).toContain(s);

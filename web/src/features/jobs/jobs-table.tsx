@@ -4,6 +4,7 @@ import { targetsQuery } from "@/api/queries";
 import type { Job, Target } from "@/api/types";
 import { JobStatusBadge } from "@/components/badges";
 import { RelativeTime } from "@/components/common";
+import { SortableTH, SortedTH, useClientSort } from "@/components/ui/sortable-header";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { formatDuration } from "@/lib/time";
 
@@ -21,24 +22,55 @@ export function useJobScope() {
   return (job: Job) => jobScope(job, targets.data?.items);
 }
 
-export function JobsTable({ jobs, compact = false }: { jobs: Job[]; compact?: boolean }) {
+const JOB_SORT = {
+  id: (j: Job) => j.id,
+  status: (j: Job) => j.status,
+  created: (j: Job) => Date.parse(j.created_at),
+};
+
+/**
+ * Jobs, newest first. `sortable` lets the user sort a complete in-memory list
+ * (e.g. the dashboard's active jobs); a paginated list keeps the server order.
+ */
+export function JobsTable({ jobs, compact = false, sortable = false }: { jobs: Job[]; compact?: boolean; sortable?: boolean }) {
   const scope = useJobScope();
+  const { sorted, sort, setSort } = useClientSort(jobs, JOB_SORT);
   return (
     <Table>
       <caption className="sr-only">Jobs</caption>
       <THead>
         <tr>
-          <TH>Job</TH>
+          {sortable ? (
+            <SortableTH sortKey="id" first="desc" sort={sort} onSort={setSort}>
+              Job
+            </SortableTH>
+          ) : (
+            <TH>Job</TH>
+          )}
           <TH>Scope</TH>
-          <TH>Status</TH>
+          {sortable ? (
+            <SortableTH sortKey="status" sort={sort} onSort={setSort}>
+              Status
+            </SortableTH>
+          ) : (
+            <TH>Status</TH>
+          )}
           {compact ? null : <TH className="hidden md:table-cell">Trigger</TH>}
-          <TH>Created</TH>
+          {sortable ? (
+            <SortableTH sortKey="created" first="desc" sort={sort} onSort={setSort}>
+              Created
+            </SortableTH>
+          ) : (
+            <SortedTH order="desc" title="Newest first">
+              Created
+            </SortedTH>
+          )}
           {compact ? null : <TH className="hidden sm:table-cell">Duration</TH>}
           {compact ? null : <TH className="hidden lg:table-cell">Requested by</TH>}
         </tr>
       </THead>
       <TBody>
-        {jobs.map((j) => (
+        {(sortable ? sorted : jobs).map((j) => (
           <TR key={j.id}>
             <TD>
               <Link to="/jobs/$id" params={{ id: String(j.id) }} className="font-medium hover:underline">

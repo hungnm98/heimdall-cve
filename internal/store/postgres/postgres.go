@@ -262,7 +262,7 @@ func scanRun(row pgx.Row) (*model.ScanRun, error) {
 
 var findingCols = []string{"id", "kind", "provider", "repo", "manifest_path", "ecosystem", "package_name",
 	"package_version", "purl", "advisory_id", "severity", "severity_rank", "in_kev", "status", "first_seen",
-	"last_seen", "data", "branch"}
+	"last_seen", "data", "branch", "priority", "sort_name"}
 
 // selectFinding reads a finding; columns override the document.
 const selectFinding = "f.data, f.status, f.first_seen, f.last_seen"
@@ -411,7 +411,7 @@ func findingRow(f model.Finding) ([]any, error) {
 	}
 	return []any{f.ID, string(f.Kind), f.Provider, f.Repo, f.ManifestPath, string(f.Package.Ecosystem), f.Package.Name,
 		f.Package.Version, f.Package.PURL, f.AdvisoryID, string(f.Severity), int16(f.Severity.Rank()), f.InKEV,
-		string(f.Status), f.FirstSeen, f.LastSeen, data, f.Branch}, nil
+		string(f.Status), f.FirstSeen, f.LastSeen, data, f.Branch, f.Priority, store.FindingSortName(f)}, nil
 }
 
 type querier interface {
@@ -487,27 +487,81 @@ func (s *Store) ListFindings(ctx context.Context, flt store.FindingFilter) ([]mo
 		where = append(where, fmt.Sprintf(
 			"(f.package_name ILIKE '%%' || $%d || '%%' OR f.advisory_id = $%d OR f.data->'Aliases' ? $%d)", n, n, n))
 	}
+	sortKey, order, err := store.ResolveFindingSort(flt.Sort, flt.Order)
+	if err != nil {
+		return nil, err
+	}
 	if flt.After != "" {
-		rank, repo, id, err := store.ParseFindingCursor(flt.After)
+		k, err := store.ParseFindingCursor(flt)
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, rank, repo, id)
-		n := len(args)
-		// Keyset on (severity_rank DESC, repo ASC, id ASC).
-		where = append(where, fmt.Sprintf(
-			"(f.severity_rank < $%d OR (f.severity_rank = $%d AND (f.repo, f.id) > ($%d, $%d)))", n-2, n-2, n-1, n))
+		where = append(where, keysetCond(k, &args))
 	}
 	sql := "SELECT " + selectFinding + " FROM findings f"
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
-	sql += " ORDER BY f.severity_rank DESC, f.repo, f.id"
+	sql += " ORDER BY " + findingOrder(sortKey, order)
 	if flt.Limit > 0 {
 		args = append(args, flt.Limit)
 		sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	}
 	return queryFindings(ctx, s.pool, sql, args...)
+}
+
+// findingSortCol is the column of each non-severity order (see the indexes
+// of migration 0009). repo is compared byte-wise, like the Go reference store.
+var findingSortCol = map[store.FindingSort]string{
+	store.SortPriority:  "f.priority",
+	store.SortName:      "f.sort_name",
+	store.SortFirstSeen: "f.first_seen",
+	store.SortRepo:      `f.repo COLLATE "C"`,
+}
+
+// findingOrder is the ORDER BY of a resolved sort (store.FindingSort).
+func findingOrder(sort store.FindingSort, order store.SortOrder) string {
+	if sort == store.SortSeverity {
+		if order == store.OrderDesc {
+			return "f.severity_rank DESC, f.repo, f.id"
+		}
+		return "f.severity_rank, f.repo DESC, f.id DESC"
+	}
+	dir := ""
+	if order == store.OrderDesc {
+		dir = " DESC"
+	}
+	return findingSortCol[sort] + dir + ", f.id" + dir
+}
+
+// keysetCond is the WHERE condition selecting rows after cursor key k.
+func keysetCond(k store.FindingKey, args *[]any) string {
+	if k.Sort == store.SortSeverity {
+		*args = append(*args, int16(k.Rank), k.Repo, k.ID)
+		n := len(*args)
+		if k.Order == store.OrderDesc {
+			return fmt.Sprintf("(f.severity_rank < $%d OR (f.severity_rank = $%d AND (f.repo, f.id) > ($%d, $%d)))", n-2, n-2, n-1, n)
+		}
+		return fmt.Sprintf("(f.severity_rank > $%d OR (f.severity_rank = $%d AND (f.repo, f.id) < ($%d, $%d)))", n-2, n-2, n-1, n)
+	}
+	var v any
+	switch k.Sort {
+	case store.SortPriority:
+		v = k.Priority
+	case store.SortName:
+		v = k.Name
+	case store.SortFirstSeen:
+		v = k.FirstSeen
+	case store.SortRepo:
+		v = k.Repo
+	}
+	*args = append(*args, v, k.ID)
+	n := len(*args)
+	op := ">"
+	if k.Order == store.OrderDesc {
+		op = "<"
+	}
+	return fmt.Sprintf("(%s, f.id) %s ($%d, $%d)", findingSortCol[k.Sort], op, n-1, n)
 }
 
 func (s *Store) GetFinding(ctx context.Context, id string) (*model.Finding, error) {

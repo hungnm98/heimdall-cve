@@ -98,11 +98,14 @@ type TargetFilter struct {
 	Origin  model.Origin
 }
 
-// RepoFilter selects cached repos, ordered by full name.
+// RepoFilter selects cached repos, ordered by full name unless Sort says
+// otherwise (see RepoSort).
 type RepoFilter struct {
 	TargetID int64
 	Query    string // substring of the full name
-	After    string // keyset cursor: full name of the last repo of the previous page
+	Sort     RepoSort
+	Order    SortOrder
+	After    string // keyset cursor: RepoCursor of the last repo of the previous page
 	Limit    int
 }
 

@@ -9,11 +9,21 @@ import type {
   AuthProfileInput,
   FindingsQuery,
   JobStatus,
+  RepoSort,
+  SortOrder,
   SuppressInput,
   TargetInput,
 } from "./types";
 
 export const PAGE_SIZE = 50;
+
+/** GET /repos filters and sort (server-side: the list is paginated). */
+export interface ReposListQuery {
+  q?: string;
+  target_id?: number;
+  sort?: RepoSort;
+  order?: SortOrder;
+}
 
 /** Statuses of a job that has not finished yet. */
 export const ACTIVE_JOB_STATUSES: readonly JobStatus[] = ["queued", "running"];
@@ -25,7 +35,7 @@ export const keys = {
   target: (id: number) => ["targets", id] as const,
   authProfiles: ["auth-profiles"] as const,
   repos: ["repos"] as const,
-  repoList: (q: { q?: string; target_id?: number }) => ["repos", "list", q] as const,
+  repoList: (q: ReposListQuery) => ["repos", "list", q] as const,
   repo: (owner: string, name: string, branch = "") => ["repos", "detail", owner, name, branch] as const,
   findings: ["findings"] as const,
   findingList: (q: FindingsQuery) => ["findings", "list", q] as const,
@@ -69,7 +79,7 @@ export const targetQuery = (id: number) =>
 export const authProfilesQuery = () =>
   queryOptions({ queryKey: keys.authProfiles, queryFn: () => unwrap(api.GET("/auth-profiles")) });
 
-export const reposQuery = (q: { q?: string; target_id?: number }) =>
+export const reposQuery = (q: ReposListQuery) =>
   infiniteQueryOptions({
     queryKey: keys.repoList(q),
     queryFn: ({ pageParam }) =>

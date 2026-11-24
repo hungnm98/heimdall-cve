@@ -295,6 +295,48 @@ func testRepos(t *testing.T, c store.Catalog) {
 	if l, _ := c.ListRepos(ctx, store.RepoFilter{Query: "WEB"}); len(l) != 1 || l[0].FullName() != "acme/web" {
 		t.Fatalf("query: %v", repoNames(l))
 	}
+
+	// Sorted lists, walked one repo per page. acme/api was scanned at
+	// scannedAt; acme/worker later; acme/web and other/lib never.
+	must(t, c.MarkRepoScanned(ctx, "acme/worker", "sha2", scannedAt.Add(time.Hour)))
+	for _, tc := range []struct {
+		sort  store.RepoSort
+		order store.SortOrder
+		want  string
+	}{
+		{"", "", "acme/api acme/web acme/worker other/lib"},
+		{store.RepoSortName, store.OrderDesc, "other/lib acme/worker acme/web acme/api"},
+		{store.RepoSortLastScanned, "", "acme/worker acme/api other/lib acme/web"},
+		{store.RepoSortLastScanned, store.OrderAsc, "acme/web other/lib acme/api acme/worker"},
+	} {
+		f := store.RepoFilter{Sort: tc.sort, Order: tc.order}
+		all, err := c.ListRepos(ctx, f)
+		must(t, err)
+		var paged []model.RepoRecord
+		for i := 0; i < 10; i++ {
+			f.Limit = 1
+			page, err := c.ListRepos(ctx, f)
+			must(t, err)
+			if len(page) == 0 {
+				break
+			}
+			paged = append(paged, page...)
+			f.After = store.RepoCursor(page[0], f)
+		}
+		name := string(tc.sort) + " " + string(tc.order)
+		if got := strings.Join(repoNames(all), " "); got != tc.want {
+			t.Fatalf("%s: %s, want %s", name, got, tc.want)
+		}
+		if got := strings.Join(repoNames(paged), " "); got != tc.want {
+			t.Fatalf("%s paged: %s, want %s", name, got, tc.want)
+		}
+	}
+	_, err = c.ListRepos(ctx, store.RepoFilter{Sort: store.RepoSortLastScanned, After: "acme/api"})
+	wantErr(t, "name cursor with last_scanned sort", err, store.ErrStaleCursor)
+	_, err = c.ListRepos(ctx, store.RepoFilter{Sort: "open"})
+	if err == nil {
+		t.Fatal("unknown repo sort must fail")
+	}
 	must(t, c.DeleteTarget(ctx, t2.ID))
 	_, err = c.GetRepo(ctx, "other/lib")
 	wantErr(t, "repos of a deleted target", err, store.ErrNotFound)

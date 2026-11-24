@@ -224,7 +224,12 @@ paths:
       parameters:
         - { name: target_id, in: query, schema: { type: integer, format: int64 } }
         - { name: q, in: query, description: Substring of owner/name, schema: { type: string } }
-        - { $ref: "#/components/parameters/Cursor" }
+        - name: sort
+          in: query
+          description: name (default) or last_scanned (never-scanned repos count as the oldest); ties on name.
+          schema: { $ref: "#/components/schemas/RepoSort" }
+        - { name: order, in: query, description: "Default asc for name, desc for last_scanned.", schema: { $ref: "#/components/schemas/SortOrder" } }
+        - { name: cursor, in: query, description: "next_cursor of the previous page, issued for the same sort and order (otherwise 400)", schema: { type: string } }
         - { $ref: "#/components/parameters/Limit" }
       responses:
         "200":
@@ -237,6 +242,7 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: "#/components/schemas/RepoRecord" } }
                   next_cursor: { type: string }
+        "400": { $ref: "#/components/responses/Problem" }
 
   /repos/{owner}/{name}:
     parameters:
@@ -269,11 +275,21 @@ paths:
         - { name: primary_branch, in: query, description: "Only primary-branch findings (default or configured branch)", schema: { type: boolean } }
         - { name: new_since, in: query, schema: { type: string, format: date-time } }
         - { name: q, in: query, description: Package name substring or exact CVE/GHSA/GO id, schema: { type: string } }
-        - { $ref: "#/components/parameters/Cursor" }
+        - name: sort
+          in: query
+          description: >
+            Sort key. severity (default) ties on repo then id; the other keys tie on id.
+            name is the package name, else the runtime name, else the advisory id (case-insensitive).
+          schema: { $ref: "#/components/schemas/FindingSort" }
+        - name: order
+          in: query
+          description: Default desc for severity, priority and first_seen; asc for name and repo.
+          schema: { $ref: "#/components/schemas/SortOrder" }
+        - { name: cursor, in: query, description: "next_cursor of the previous page, issued for the same sort and order (otherwise 400)", schema: { type: string } }
         - { $ref: "#/components/parameters/Limit" }
       responses:
         "200":
-          description: OK (ordered by severity desc, repo, id)
+          description: OK (ordered by sort/order; default severity desc, repo, id)
           content:
             application/json:
               schema:
@@ -577,6 +593,9 @@ components:
     Severity: { type: string, enum: [CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN] }
     FindingKind: { type: string, enum: [dependency, runtime, code, secret, config] }
     FindingStatus: { type: string, enum: [open, fixed, suppressed, removed], description: "removed = its branch is gone or no longer scanned" }
+    FindingSort: { type: string, enum: [severity, priority, name, first_seen, repo] }
+    SortOrder: { type: string, enum: [asc, desc] }
+    RepoSort: { type: string, enum: [name, last_scanned] }
     BumpType: { type: string, enum: ["", patch, minor, major, no-fix-available] }
     Origin: { type: string, enum: [config, ui] }
     TargetKind: { type: string, enum: [org, user, repo] }

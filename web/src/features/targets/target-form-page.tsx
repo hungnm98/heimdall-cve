@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox, Input, NativeSelect } from "@/components/ui/input";
 import { Skeleton, Switch } from "@/components/ui/misc";
+import { SortableTH, useClientSort } from "@/components/ui/sortable-header";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { useScan } from "@/features/jobs/use-scan";
 import { cronError, SCHEDULE_PRESETS, type SchedulePresetId } from "@/lib/schedule";
@@ -38,7 +39,13 @@ function clientErrors(s: TargetFormState, needsListAuth: boolean): Errors {
   return e;
 }
 
+const PREVIEW_SORT = {
+  name: (r: Repo) => r.full_name,
+  branch: (r: Repo) => r.ref || r.default_branch,
+};
+
 function PreviewTable({ repos }: { repos: Repo[] }) {
+  const { sorted, sort, setSort } = useClientSort(repos, PREVIEW_SORT);
   if (repos.length === 0)
     return (
       <EmptyState
@@ -51,13 +58,17 @@ function PreviewTable({ repos }: { repos: Repo[] }) {
       <caption className="sr-only">Repositories this target would scan</caption>
       <THead>
         <tr>
-          <TH>Repository</TH>
-          <TH>Branch</TH>
+          <SortableTH sortKey="name" sort={sort} onSort={setSort}>
+            Repository
+          </SortableTH>
+          <SortableTH sortKey="branch" sort={sort} onSort={setSort}>
+            Branch
+          </SortableTH>
           <TH className="hidden sm:table-cell">Topics</TH>
         </tr>
       </THead>
       <TBody>
-        {repos.map((r) => (
+        {sorted.map((r) => (
           <TR key={r.full_name}>
             <TD className="font-medium">
               {r.full_name}

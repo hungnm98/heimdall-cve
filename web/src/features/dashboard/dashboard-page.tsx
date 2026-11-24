@@ -185,7 +185,7 @@ export function DashboardPage() {
             </CardHeader>
             <CardContent>
               {d.active_jobs.length ? (
-                <JobsTable jobs={d.active_jobs} compact />
+                <JobsTable jobs={d.active_jobs} compact sortable />
               ) : (
                 <p className="text-sm text-muted-foreground">No scans running.</p>
               )}
@@ -227,7 +227,7 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             {d.top_findings.length ? (
-              <FindingsTable findings={d.top_findings} caption="Top findings by priority" />
+              <FindingsTable findings={d.top_findings} caption="Top findings by priority" initialSort={{ key: "priority", order: "desc" }} />
             ) : (
               <p className="text-sm text-muted-foreground">No open findings.</p>
             )}

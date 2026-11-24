@@ -15,6 +15,14 @@ import (
 type reposSvc struct{ *base }
 
 func (s *reposSvc) List(ctx context.Context, f store.RepoFilter) (*Page[model.RepoRecord], error) {
+	if _, _, err := store.ResolveRepoSort(f.Sort, f.Order); err != nil {
+		return nil, sortInvalid(err)
+	}
+	if f.After != "" {
+		if _, err := store.ParseRepoCursor(f); err != nil {
+			return nil, invalid("cursor", err.Error())
+		}
+	}
 	limit := ClampLimit(f.Limit)
 	f.Limit = limit + 1
 	items, err := s.d.Catalog.ListRepos(ctx, f)
@@ -24,7 +32,7 @@ func (s *reposSvc) List(ctx context.Context, f store.RepoFilter) (*Page[model.Re
 	page := &Page[model.RepoRecord]{Items: items}
 	if len(items) > limit {
 		page.Items = items[:limit]
-		page.NextCursor = items[limit-1].FullName()
+		page.NextCursor = store.RepoCursor(items[limit-1], f)
 	}
 	for i := range page.Items {
 		counts, err := s.openCounts(ctx, page.Items[i].FullName())

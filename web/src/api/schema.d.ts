@@ -482,6 +482,12 @@ export interface components {
          */
         FindingStatus: "open" | "fixed" | "suppressed" | "removed";
         /** @enum {string} */
+        FindingSort: "severity" | "priority" | "name" | "first_seen" | "repo";
+        /** @enum {string} */
+        SortOrder: "asc" | "desc";
+        /** @enum {string} */
+        RepoSort: "name" | "last_scanned";
+        /** @enum {string} */
         BumpType: "" | "patch" | "minor" | "major" | "no-fix-available";
         /** @enum {string} */
         Origin: "config" | "ui";
@@ -1201,7 +1207,12 @@ export interface operations {
                 target_id?: number;
                 /** @description Substring of owner/name */
                 q?: string;
-                cursor?: components["parameters"]["Cursor"];
+                /** @description name (default) or last_scanned (never-scanned repos count as the oldest); ties on name. */
+                sort?: components["schemas"]["RepoSort"];
+                /** @description Default asc for name, desc for last_scanned. */
+                order?: components["schemas"]["SortOrder"];
+                /** @description next_cursor of the previous page, issued for the same sort and order (otherwise 400) */
+                cursor?: string;
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -1222,6 +1233,7 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["Problem"];
         };
     };
     getRepo: {
@@ -1266,7 +1278,12 @@ export interface operations {
                 new_since?: string;
                 /** @description Package name substring or exact CVE/GHSA/GO id */
                 q?: string;
-                cursor?: components["parameters"]["Cursor"];
+                /** @description Sort key. severity (default) ties on repo then id; the other keys tie on id. name is the package name, else the runtime name, else the advisory id (case-insensitive). */
+                sort?: components["schemas"]["FindingSort"];
+                /** @description Default desc for severity, priority and first_seen; asc for name and repo. */
+                order?: components["schemas"]["SortOrder"];
+                /** @description next_cursor of the previous page, issued for the same sort and order (otherwise 400) */
+                cursor?: string;
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -1275,7 +1292,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK (ordered by severity desc, repo, id) */
+            /** @description OK (ordered by sort/order; default severity desc, repo, id) */
             200: {
                 headers: {
                     [name: string]: unknown;

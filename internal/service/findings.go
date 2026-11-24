@@ -16,9 +16,12 @@ const MaxSuppression = 365 * 24 * time.Hour
 type findingsSvc struct{ *base }
 
 func (s *findingsSvc) List(ctx context.Context, f store.FindingFilter) (*Page[model.Finding], error) {
+	if _, _, err := store.ResolveFindingSort(f.Sort, f.Order); err != nil {
+		return nil, sortInvalid(err)
+	}
 	if f.After != "" {
-		if _, _, _, err := store.ParseFindingCursor(f.After); err != nil {
-			return nil, invalid("cursor", "invalid cursor")
+		if _, err := store.ParseFindingCursor(f); err != nil {
+			return nil, invalid("cursor", err.Error())
 		}
 	}
 	limit := ClampLimit(f.Limit)
@@ -30,9 +33,18 @@ func (s *findingsSvc) List(ctx context.Context, f store.FindingFilter) (*Page[mo
 	page := &Page[model.Finding]{Items: items}
 	if len(items) > limit {
 		page.Items = items[:limit]
-		page.NextCursor = store.FindingCursor(items[limit-1])
+		page.NextCursor = store.FindingCursor(items[limit-1], f)
 	}
 	return page, nil
+}
+
+// sortInvalid turns a store.SortError into a ValidationError on its field.
+func sortInvalid(err error) error {
+	var se *store.SortError
+	if errors.As(err, &se) {
+		return invalid(se.Field, se.Msg)
+	}
+	return err
 }
 
 func (s *findingsSvc) Get(ctx context.Context, id string) (*FindingDetail, error) {
@@ -94,6 +106,6 @@ func eachFinding(ctx context.Context, st store.Store, f store.FindingFilter, fn 
 		if len(items) < pageSize {
 			return nil
 		}
-		f.After = store.FindingCursor(items[len(items)-1])
+		f.After = store.FindingCursor(items[len(items)-1], f)
 	}
 }

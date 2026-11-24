@@ -199,21 +199,27 @@ func (s *Store) RecordFindings(_ context.Context, runID int64, scanned []string,
 func (s *Store) ListFindings(_ context.Context, flt store.FindingFilter) ([]model.Finding, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var out []model.Finding
-	var cRank int
-	var cRepo, cID string
+	sortKey, order, err := store.ResolveFindingSort(flt.Sort, flt.Order)
+	if err != nil {
+		return nil, err
+	}
+	var cur *store.FindingKey
 	if flt.After != "" {
-		var err error
-		if cRank, cRepo, cID, err = store.ParseFindingCursor(flt.After); err != nil {
+		k, err := store.ParseFindingCursor(flt)
+		if err != nil {
 			return nil, err
 		}
+		cur = &k
 	}
+	var out []model.Finding
 	for _, f := range s.findings {
-		if match(f, flt) && (flt.After == "" || store.FindingAfter(f, cRank, cRepo, cID)) {
+		if match(f, flt) && (cur == nil || store.KeyOf(f, sortKey, order).Compare(*cur) > 0) {
 			out = append(out, f)
 		}
 	}
-	sortFindings(out)
+	sort.Slice(out, func(i, j int) bool {
+		return store.KeyOf(out[i], sortKey, order).Compare(store.KeyOf(out[j], sortKey, order)) < 0
+	})
 	if flt.Limit > 0 && len(out) > flt.Limit {
 		out = out[:flt.Limit]
 	}
@@ -398,18 +404,4 @@ func sortedIDs(m map[string]model.Finding) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// sortFindings orders by severity (worst first), then repo, then ID.
-func sortFindings(fs []model.Finding) {
-	sort.Slice(fs, func(i, j int) bool {
-		a, b := fs[i], fs[j]
-		if a.Severity.Rank() != b.Severity.Rank() {
-			return a.Severity.Rank() > b.Severity.Rank()
-		}
-		if a.Repo != b.Repo {
-			return a.Repo < b.Repo
-		}
-		return a.ID < b.ID
-	})
 }

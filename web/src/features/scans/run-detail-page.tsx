@@ -2,17 +2,64 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 import { diffQuery, runQuery, runsQuery } from "@/api/queries";
-import type { Finding } from "@/api/types";
+import type { Finding, SourceHealth } from "@/api/types";
 import { HealthBadge, RunStatusBadge, SeverityCounts } from "@/components/badges";
 import { EmptyState, ErrorState, KV, PageHeader, RelativeTime, TableSkeleton } from "@/components/common";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/input";
 import { Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
-import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
+import { SortableTH, useClientSort } from "@/components/ui/sortable-header";
+import { TBody, TD, THead, TR, Table } from "@/components/ui/table";
 import { FindingsTable } from "@/features/findings/findings-table";
 import { formatDuration } from "@/lib/time";
 
 const route = getRouteApi("/runs/$id");
+
+const SOURCE_SORT = {
+  name: (s: SourceHealth) => s.name,
+  health: (s: SourceHealth) => (s.healthy ? 1 : 0),
+  calls: (s: SourceHealth) => s.calls,
+  time: (s: SourceHealth) => s.duration_ms,
+};
+
+function RunSources({ sources }: { sources: SourceHealth[] }) {
+  const { sorted, sort, setSort } = useClientSort(sources, SOURCE_SORT);
+  return (
+    <Table>
+      <THead>
+        <tr>
+          <SortableTH sortKey="name" sort={sort} onSort={setSort}>
+            Source
+          </SortableTH>
+          <SortableTH sortKey="health" sort={sort} onSort={setSort}>
+            Health
+          </SortableTH>
+          <SortableTH sortKey="calls" first="desc" sort={sort} onSort={setSort}>
+            Calls
+          </SortableTH>
+          <SortableTH sortKey="time" first="desc" sort={sort} onSort={setSort}>
+            Time
+          </SortableTH>
+        </tr>
+      </THead>
+      <TBody>
+        {sorted.map((s) => (
+          <TR key={s.name}>
+            <TD>
+              {s.name}
+              {s.error ? <div className="text-xs text-destructive">{s.error}</div> : null}
+            </TD>
+            <TD>
+              <HealthBadge healthy={s.healthy} />
+            </TD>
+            <TD className="tabular-nums">{s.calls ?? "—"}</TD>
+            <TD className="tabular-nums">{s.duration_ms !== undefined ? `${(s.duration_ms / 1000).toFixed(1)}s` : "—"}</TD>
+          </TR>
+        ))}
+      </TBody>
+    </Table>
+  );
+}
 
 function DiffList({ findings, empty }: { findings: Finding[]; empty: string }) {
   return findings.length ? <FindingsTable findings={findings} /> : <EmptyState title={empty} />;
@@ -134,31 +181,7 @@ export function RunDetailPage() {
           </CardHeader>
           <CardContent>
             {r.sources?.length ? (
-              <Table>
-                <THead>
-                  <tr>
-                    <TH>Source</TH>
-                    <TH>Health</TH>
-                    <TH>Calls</TH>
-                    <TH>Time</TH>
-                  </tr>
-                </THead>
-                <TBody>
-                  {r.sources.map((s) => (
-                    <TR key={s.name}>
-                      <TD>
-                        {s.name}
-                        {s.error ? <div className="text-xs text-destructive">{s.error}</div> : null}
-                      </TD>
-                      <TD>
-                        <HealthBadge healthy={s.healthy} />
-                      </TD>
-                      <TD className="tabular-nums">{s.calls ?? "—"}</TD>
-                      <TD className="tabular-nums">{s.duration_ms !== undefined ? `${(s.duration_ms / 1000).toFixed(1)}s` : "—"}</TD>
-                    </TR>
-                  ))}
-                </TBody>
-              </Table>
+              <RunSources sources={r.sources} />
             ) : (
               <p className="text-sm text-muted-foreground">No source information.</p>
             )}

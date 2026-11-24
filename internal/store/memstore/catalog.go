@@ -326,6 +326,18 @@ func (s *Store) UpsertRepos(_ context.Context, targetID int64, repos []model.Rep
 }
 
 func (s *Store) ListRepos(_ context.Context, f store.RepoFilter) ([]model.RepoRecord, error) {
+	sortKey, order, err := store.ResolveRepoSort(f.Sort, f.Order)
+	if err != nil {
+		return nil, err
+	}
+	var cur *store.RepoKey
+	if f.After != "" {
+		k, err := store.ParseRepoCursor(f)
+		if err != nil {
+			return nil, err
+		}
+		cur = &k
+	}
 	c := &s.cat
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -334,11 +346,13 @@ func (s *Store) ListRepos(_ context.Context, f store.RepoFilter) ([]model.RepoRe
 	for name, r := range c.repos {
 		if (f.TargetID == 0 || r.TargetID == f.TargetID) &&
 			(f.Query == "" || strings.Contains(strings.ToLower(name), strings.ToLower(f.Query))) &&
-			(f.After == "" || name > f.After) {
+			(cur == nil || store.RepoKeyOf(r, sortKey, order).Compare(*cur) > 0) {
 			out = append(out, r)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].FullName() < out[j].FullName() })
+	sort.Slice(out, func(i, j int) bool {
+		return store.RepoKeyOf(out[i], sortKey, order).Compare(store.RepoKeyOf(out[j], sortKey, order)) < 0
+	})
 	if f.Limit > 0 && len(out) > f.Limit {
 		out = out[:f.Limit]
 	}

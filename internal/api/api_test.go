@@ -346,6 +346,13 @@ func TestOpenAPIContract(t *testing.T) {
 		t.Fatal(rp)
 	}
 	c.expect(200, "GET", "/api/v1/repos?limit=1&cursor=acme/api&q=acme&target_id="+fmt.Sprint(tid), nil)
+	rs := c.expect(200, "GET", "/api/v1/repos?limit=1&sort=last_scanned&order=asc", nil)
+	if rs["next_cursor"] == nil {
+		t.Fatal(rs)
+	}
+	c.expect(200, "GET", "/api/v1/repos?limit=1&sort=last_scanned&order=asc&cursor="+rs["next_cursor"].(string), nil)
+	c.expect(400, "GET", "/api/v1/repos?sort=last_scanned&cursor=acme/api", nil) // name cursor
+	c.expect(400, "GET", "/api/v1/repos?sort=open_findings", nil)
 	rd := c.expect(200, "GET", "/api/v1/repos/acme/api", nil)
 	if len(rd["upgrade_plan"].([]any)) != 1 || len(rd["runtimes"].([]any)) != 1 {
 		t.Fatal(rd)
@@ -360,6 +367,14 @@ func TestOpenAPIContract(t *testing.T) {
 	c.expect(200, "GET", "/api/v1/findings?cursor="+fl["next_cursor"].(string), nil)
 	c.expect(200, "GET", "/api/v1/findings?kev=true&q=CVE-2024-0001&kind=dependency&new_since=2026-01-01T00:00:00Z&repo=acme/api", nil)
 	c.expect(400, "GET", "/api/v1/findings?cursor=@@@", nil)
+	sl := c.expect(200, "GET", "/api/v1/findings?limit=1&sort=priority&order=asc", nil)
+	if sl["next_cursor"] == nil {
+		t.Fatal(sl)
+	}
+	c.expect(200, "GET", "/api/v1/findings?sort=priority&order=asc&cursor="+sl["next_cursor"].(string), nil)
+	c.expect(400, "GET", "/api/v1/findings?sort=name&cursor="+sl["next_cursor"].(string), nil) // cursor of another order
+	c.expect(400, "GET", "/api/v1/findings?sort=cvss", nil)
+	c.expect(400, "GET", "/api/v1/findings?order=up", nil)
 	c.expect(400, "GET", "/api/v1/findings?kev=maybe", nil)
 	c.expect(200, "GET", "/api/v1/findings/"+findingID, nil)
 	c.expect(404, "GET", "/api/v1/findings/nope", nil)

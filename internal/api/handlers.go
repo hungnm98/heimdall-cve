@@ -197,7 +197,8 @@ func (h *handler) testAuthProfile(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) listRepos(w http.ResponseWriter, r *http.Request) {
 	q := newQuery(r)
-	f := store.RepoFilter{TargetID: q.int64("target_id"), Query: q.str("q"), After: q.str("cursor"), Limit: q.limit()}
+	f := store.RepoFilter{TargetID: q.int64("target_id"), Query: q.str("q"), After: q.str("cursor"), Limit: q.limit(),
+		Sort: store.RepoSort(q.str("sort")), Order: store.SortOrder(q.str("order"))}
 	if !q.ok(w) {
 		return
 	}
@@ -226,6 +227,7 @@ func (h *handler) listFindings(w http.ResponseWriter, r *http.Request) {
 		Repo: q.str("repo"), Kind: model.FindingKind(q.str("kind")), Status: model.FindingStatus(q.str("status")),
 		InKEV: q.bool("kev"), NewSince: q.time("new_since"), Query: strings.TrimSpace(q.str("q")),
 		Branch: q.str("branch"), DefaultBranchOnly: q.bool("primary_branch"),
+		Sort: store.FindingSort(q.str("sort")), Order: store.SortOrder(q.str("order")),
 		After: q.str("cursor"), Limit: q.limit(),
 	}
 	if v := q.str("min_severity"); v != "" {

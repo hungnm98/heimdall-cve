@@ -376,15 +376,43 @@ func (s *Store) ListRepos(ctx context.Context, f store.RepoFilter) ([]model.Repo
 	if f.Query != "" {
 		add("strpos(lower(full_name), lower($%d)) > 0", f.Query)
 	}
+	sortKey, order, err := store.ResolveRepoSort(f.Sort, f.Order)
+	if err != nil {
+		return nil, err
+	}
+	// Keyset on (key, full_name), both in the requested order; never-scanned
+	// repos sort as the oldest. full_name keeps the column's collation.
+	key := "full_name"
+	if sortKey == store.RepoSortLastScanned {
+		key = "COALESCE(last_scanned_at, '-infinity'::timestamptz), full_name"
+	}
+	dir, op := "", ">"
+	if order == store.OrderDesc {
+		dir, op = " DESC", "<"
+	}
 	if f.After != "" {
-		add("full_name > $%d", f.After) // keyset on the primary key
+		k, err := store.ParseRepoCursor(f)
+		if err != nil {
+			return nil, err
+		}
+		if sortKey == store.RepoSortLastScanned {
+			args = append(args, k.Scanned, k.Name) // nil = never scanned
+			where = append(where, fmt.Sprintf("(%s) %s (COALESCE($%d::timestamptz, '-infinity'::timestamptz), $%d)",
+				key, op, len(args)-1, len(args)))
+		} else {
+			add("full_name "+op+" $%d", k.Name)
+		}
 	}
 	sql := "SELECT " + repoCols + " FROM repos"
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
 	args = append(args, limitArg(f.Limit))
-	sql += fmt.Sprintf(" ORDER BY full_name LIMIT $%d", len(args))
+	orderBy := "full_name" + dir
+	if sortKey == store.RepoSortLastScanned {
+		orderBy = "COALESCE(last_scanned_at, '-infinity'::timestamptz)" + dir + ", full_name" + dir
+	}
+	sql += fmt.Sprintf(" ORDER BY %s LIMIT $%d", orderBy, len(args))
 	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
