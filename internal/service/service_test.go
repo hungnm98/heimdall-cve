@@ -298,6 +298,9 @@ func TestAuthProfileSecretSealing(t *testing.T) {
 	if err != nil || p.Options["token_ref"] != itoa(rec.ID) || *p.SecretID != rec.ID {
 		t.Fatalf("update kept secret? %+v %v", p, err)
 	}
+	if _, err := e.svc.AuthProfiles.Update(ctx, "alice", "pat-2", service.AuthProfileInput{Name: "pat-2", Type: "app"}); fieldsOf(t, err)["secret"] == "" {
+		t.Fatal("changing type must require a new secret")
+	}
 	p, err = e.svc.AuthProfiles.Update(ctx, "alice", "pat-2", service.AuthProfileInput{Name: "pat-2", Type: "token", Secret: strp("ghp_newvalue_abcdefgh")})
 	if err != nil || *p.SecretID != rec.ID {
 		t.Fatalf("replace: %+v %v", p, err)

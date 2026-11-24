@@ -78,6 +78,10 @@ func (s *authProfilesSvc) Update(ctx context.Context, actor Actor, name string, 
 	if err != nil {
 		return nil, err
 	}
+	if in.Secret == nil && p.SecretID != nil && in.Type != p.Type {
+		// The stored secret is of the old type's kind (e.g. a token for an app profile).
+		return nil, invalid("secret", "a new secret is required when changing the profile type")
+	}
 	if in.Name != name { // check before touching the secret
 		if _, err := s.d.Catalog.GetAuthProfile(ctx, in.Name); err == nil {
 			return nil, fmt.Errorf("auth profile %q already exists: %w", in.Name, ErrConflict)
