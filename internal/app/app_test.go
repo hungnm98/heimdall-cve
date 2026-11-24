@@ -159,8 +159,15 @@ func TestNewWiresPlugins(t *testing.T) {
 	if fp.creds.Read.Method() != "test-ssh" || fp.creds.List.Method() != "test-token" || fp.opts["base_url"] != "https://ghe.example.com/api/v3" {
 		t.Fatalf("repo target provider wired wrong: %+v", fp)
 	}
-	if len(a.Ecosystems) != 1 || len(a.Detectors) != 1 || a.Detectors[0].Runtime() != "go" {
-		t.Fatalf("ecosystems=%d detectors=%v; want 1 eco and only the go detector", len(a.Ecosystems), a.Detectors)
+	// Real detectors blank-imported in plugins.go register too, so only check
+	// that every built detector is for the configured runtime.
+	if len(a.Ecosystems) != 1 || len(a.Detectors) == 0 {
+		t.Fatalf("ecosystems=%d detectors=%v; want 1 eco and the go detectors", len(a.Ecosystems), a.Detectors)
+	}
+	for _, d := range a.Detectors {
+		if d.Runtime() != "go" {
+			t.Fatalf("detector %s for runtime %s must not be built", d.Name(), d.Runtime())
+		}
 	}
 	if len(a.VulnSources) != 1 || len(a.RuntimeSources) != 1 || a.VulnSources[0].(fakeVuln).opts["k"] != "v" {
 		t.Fatalf("a source registered in two kinds must be built in both with its options")
