@@ -657,7 +657,7 @@ components:
         type: { type: string }
         options: { type: object, additionalProperties: true }
         has_secret: { type: boolean }
-        secret_fingerprint: { type: string, description: Non-reversible identifier, e.g. "1a2b3c4d…wxyz" }
+        secret_fingerprint: { type: string, description: "Non-reversible identifier, e.g. 1a2b3c4d…wxyz" }
         origin: { $ref: "#/components/schemas/Origin" }
         used_by: { type: array, items: { type: integer, format: int64 }, description: Target ids }
         created_at: { type: string, format: date-time }
