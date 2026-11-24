@@ -133,7 +133,7 @@ var flagFor = map[string]string{
 var errDisabled = errors.New("disabled")
 
 func disabledError(tool string) error {
-	return fmt.Errorf("%s is disabled by configuration (%w): an operator must start `heimdall mcp` with %s. Do not retry", tool, errDisabled, flagFor[tool])
+	return fmt.Errorf("%s is %w by configuration: an operator must start `heimdall mcp` with %s. Do not retry", tool, errDisabled, flagFor[tool])
 }
 
 // toolError turns a service error into text an agent can act on.
