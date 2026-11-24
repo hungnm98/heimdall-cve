@@ -1,0 +1,88 @@
+{
+  "text": "Daily scan",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": ":shield: Daily scan",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "*Run*\n<https://heimdall.example/runs/7|#7>"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Status*\n:white_check_mark: succeeded"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Repos scanned*\n1"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Repos failed*\n0"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*New*\n1"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Fixed*\n0"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Still open*\n0"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Finished*\n2026-01-02 03:05 UTC"
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Open by severity*\n:red_circle: CRITICAL *0*   :large_orange_circle: HIGH *1*   :large_yellow_circle: MEDIUM *0*   :large_blue_circle: LOW *0*   :white_circle: UNKNOWN *0*\n:fire: Known exploited (KEV) *0* · :skull: Malicious *0*"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Top findings*\n:large_orange_circle: *HIGH* <https://osv.dev/vulnerability/GO-2024-2687|GO-2024-2687> · `golang.org/x/net` v0.20.0 → *v0.23.0* (minor) · acme/api _unverified_ · <https://heimdall.example/findings/f1|details>"
+      }
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "Open run in Heimdall",
+            "emoji": true
+          },
+          "url": "https://heimdall.example/runs/7",
+          "action_id": "link-0"
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "Heimdall · `scan.summary` · #sec-deps"
+        }
+      ]
+    }
+  ]
+}

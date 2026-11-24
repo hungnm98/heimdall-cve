@@ -1,0 +1,91 @@
+{
+  "text": "[HIGH] SLA breached",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": ":alarm_clock: SLA breached",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "<https://osv.dev/vulnerability/GO-2024-2687|GO-2024-2687> — HTTP/2 CONTINUATION flood\n_unverified_"
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "*Repository*\nacme/api"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Package*\n`golang.org/x/net`"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Current → recommended*\nv0.20.0 → *v0.23.0*"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Upgrade*\nminor"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Severity*\n:large_orange_circle: HIGH"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Manifest*\ngo.mod"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Aliases*\nCVE-2023-45288"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Open since*\n2026-01-02"
+        }
+      ]
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "View in Heimdall",
+            "emoji": true
+          },
+          "url": "https://heimdall.example/findings/f1",
+          "action_id": "link-0"
+        },
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "Advisory GO-2024-2687",
+            "emoji": true
+          },
+          "url": "https://osv.dev/vulnerability/GO-2024-2687",
+          "action_id": "link-1"
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "Heimdall · `finding.sla_breached` · #sec-deps"
+        }
+      ]
+    }
+  ]
+}
