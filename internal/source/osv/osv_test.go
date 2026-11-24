@@ -194,9 +194,10 @@ func TestMapping(t *testing.T) {
 		t.Errorf("GHSA metadata = %+v", ghsa)
 	}
 
+	// Go vulndb records carry no severity: it comes from the GHSA alias.
 	goAdv := m["GO-2024-2611"]
-	if goAdv.Severity != model.SeverityUnknown || goAdv.CVSSScore != 0 {
-		t.Errorf("GO severity = %s %v", goAdv.Severity, goAdv.CVSSScore)
+	if goAdv.Severity != model.SeverityMedium || goAdv.CVSSScore != 5.9 {
+		t.Errorf("GO severity from alias = %s %v", goAdv.Severity, goAdv.CVSSScore)
 	}
 	want := []model.VersionRange{{Introduced: "0", Fixed: "1.33.0"}}
 	if len(goAdv.Affected) != 1 || fmt.Sprint(goAdv.Affected[0].Ranges) != fmt.Sprint(want) || goAdv.Affected[0].Ecosystem != model.EcosystemGo {
@@ -381,4 +382,35 @@ func TestInflightDedupesConcurrentFetches(t *testing.T) {
 	if calls != 1 || strings.Join(results, "") != "vvvvv" {
 		t.Errorf("calls=%d results=%v", calls, results)
 	}
+}
+
+func TestAliasSeverity(t *testing.T) {
+	f, srv := newFakeOSV(t)
+	cache, err := httpx.NewCache(t.TempDir(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newSource(t, srv, cache, nil)
+	advs := []model.Advisory{
+		{ID: "GO-2024-2611", Aliases: []string{"CVE-2024-24786", "GHSA-8r3f-844c-mc37"}, Severity: model.SeverityUnknown},
+		{ID: "GO-2099-0001", Aliases: []string{"CVE-2099-0001"}, Severity: model.SeverityUnknown},
+		{ID: "GHSA-x", Aliases: []string{"CVE-2024-24786"}, Severity: model.SeverityHigh},
+	}
+	for i := 0; i < 2; i++ {
+		cp := append([]model.Advisory(nil), advs...)
+		if err := s.aliasSeverity(context.Background(), cp); err != nil {
+			t.Fatal(err)
+		}
+		if cp[0].Severity != model.SeverityMedium || cp[0].CVSSScore != 5.9 || cp[0].CVSSVector == "" {
+			t.Fatalf("GHSA alias must fill severity: %+v", cp[0])
+		}
+		if cp[1].Severity != model.SeverityUnknown || cp[2].Severity != model.SeverityHigh {
+			t.Fatalf("unknown alias stays unknown, known severity untouched: %+v %+v", cp[1], cp[2])
+		}
+	}
+	f.with(func() {
+		if f.detailCalls["GHSA-8r3f-844c-mc37"] != 1 || f.detailCalls["CVE-2099-0001"] != 1 || f.detailCalls["CVE-2024-24786"] != 0 {
+			t.Fatalf("aliases must be fetched once (404s cached, GHSA preferred, known severities skipped): %v", f.detailCalls)
+		}
+	})
 }

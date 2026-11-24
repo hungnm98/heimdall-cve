@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -43,6 +44,9 @@ type Config struct {
 	BatchSize   int           `mapstructure:"batch_size"`  // queries per querybatch, 1..1000 (default 1000)
 	Concurrency int           `mapstructure:"concurrency"` // parallel detail fetches (default 8)
 	CacheTTL    time.Duration `mapstructure:"cache_ttl"`   // detail cache TTL (default 720h; records are keyed by modified)
+	// AliasSeverity fills the severity of advisories that carry none (most
+	// Go vulndb GO-* records) from their GHSA or CVE alias records (default true).
+	AliasSeverity *bool `mapstructure:"alias_severity"`
 }
 
 // Validate implements plugin.Validator.
@@ -152,7 +156,130 @@ func (s *Source) Query(ctx context.Context, pkgs []model.Package) ([]model.Advis
 		}
 		out = append(out, toAdvisory(v, Name))
 	}
+	if s.cfg.AliasSeverity == nil || *s.cfg.AliasSeverity {
+		if err := s.aliasSeverity(ctx, out); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
+}
+
+// aliasSeverity fills Severity/CVSS of advisories that have none from their
+// alias records, GHSA first (best severity data), then CVE. A missing alias
+// (404) is cached as empty so it is not fetched again on every run.
+func (s *Source) aliasSeverity(ctx context.Context, advs []model.Advisory) error {
+	type job struct {
+		idx     int
+		aliases []string
+	}
+	// Aliases returned by the same query are used as they are: no fetch.
+	known := map[string]model.Advisory{}
+	for _, a := range advs {
+		if a.Severity != model.SeverityUnknown {
+			known[a.ID] = a
+		}
+	}
+	var jobs []job
+	for i, a := range advs {
+		if a.Severity != model.SeverityUnknown || a.CVSSScore > 0 {
+			continue
+		}
+		if k, ok := firstKnown(a.Aliases, known); ok {
+			advs[i].Severity, advs[i].CVSSVector, advs[i].CVSSScore = k.Severity, k.CVSSVector, k.CVSSScore
+			continue
+		}
+		var ghsa, cve []string
+		for _, al := range a.Aliases {
+			switch {
+			case strings.HasPrefix(al, "GHSA-"):
+				ghsa = append(ghsa, al)
+			case strings.HasPrefix(al, "CVE-"):
+				cve = append(cve, al)
+			}
+		}
+		if cands := append(ghsa, cve...); len(cands) > 0 {
+			jobs = append(jobs, job{i, cands})
+		}
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+	sem := make(chan struct{}, s.cfg.Concurrency)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	for _, j := range jobs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(j job) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			for _, al := range j.aliases {
+				v, err := s.fetchAlias(ctx, al)
+				if err != nil {
+					mu.Lock()
+					if firstErr == nil && ctx.Err() != nil {
+						firstErr = ctx.Err()
+					}
+					mu.Unlock()
+					return // a failing alias lookup only leaves the severity unknown
+				}
+				if v.ID == "" {
+					continue
+				}
+				alias := toAdvisory(v, Name)
+				if alias.Severity == model.SeverityUnknown {
+					continue
+				}
+				mu.Lock()
+				a := &advs[j.idx]
+				a.Severity, a.CVSSVector, a.CVSSScore = alias.Severity, alias.CVSSVector, alias.CVSSScore
+				mu.Unlock()
+				return
+			}
+		}(j)
+	}
+	wg.Wait()
+	return firstErr
+}
+
+func firstKnown(aliases []string, known map[string]model.Advisory) (model.Advisory, bool) {
+	for _, prefix := range []string{"GHSA-", "CVE-"} {
+		for _, al := range aliases {
+			if k, ok := known[al]; ok && strings.HasPrefix(al, prefix) {
+				return k, true
+			}
+		}
+	}
+	return model.Advisory{}, false
+}
+
+// fetchAlias fetches an alias record by id (no modified stamp is known),
+// caching 404s as an empty record.
+func (s *Source) fetchAlias(ctx context.Context, id string) (osvVuln, error) {
+	key := "osv:alias:" + id
+	b, err := s.inflight.do(key, func() ([]byte, error) {
+		return s.cache.Fetch(ctx, key, s.cfg.CacheTTL, func(ctx context.Context) ([]byte, error) {
+			var raw json.RawMessage
+			err := s.http.GetJSON(ctx, s.cfg.BaseURL+"/v1/vulns/"+url.PathEscape(id), nil, &raw)
+			var se *httpx.StatusError
+			if errors.As(err, &se) && se.Code == http.StatusNotFound {
+				return []byte("{}"), nil
+			}
+			if err != nil {
+				return nil, fmt.Errorf("osv alias %s: %w", id, err)
+			}
+			return raw, nil
+		})
+	})
+	if err != nil {
+		return osvVuln{}, err
+	}
+	var v osvVuln
+	if err := json.Unmarshal(b, &v); err != nil {
+		return osvVuln{}, fmt.Errorf("osv alias %s: decode: %w", id, err)
+	}
+	return v, nil
 }
 
 // queryBatches runs querybatch over all queries, following next_page_token,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -429,30 +430,66 @@ func (p *Pipeline) evaluateRuntimes(ctx context.Context, results []*repoResult, 
 // stdlibGraphs turns exact Go versions (x.y.z) into synthetic "stdlib"
 // dependencies so the standard library is checked like any module. A bare
 // "go 1.22" directive is a minimum, not the toolchain in use: skipped.
+//
+// One graph per version and repo: the same toolchain declared in go.mod,
+// .tool-versions, Dockerfiles and CI is one exposure, reported once against
+// its most authoritative declaration (see stdlibOriginRank).
 func stdlibGraphs(rts []model.Runtime) []model.DependencyGraph {
-	byOrigin := map[string]map[string]bool{}
+	best := map[string]model.Runtime{} // version → chosen declaration
 	for _, rt := range rts {
 		if rt.Name != "go" || strings.Count(rt.Version, ".") < 2 {
 			continue
 		}
-		if byOrigin[rt.Origin] == nil {
-			byOrigin[rt.Origin] = map[string]bool{}
+		cur, ok := best[rt.Version]
+		if !ok || betterOrigin(rt, cur) {
+			best[rt.Version] = rt
 		}
-		byOrigin[rt.Origin][rt.Version] = true
 	}
 	var out []model.DependencyGraph
-	for origin, vs := range byOrigin {
-		g := model.DependencyGraph{Ecosystem: model.EcosystemGo, ManifestPath: origin}
-		for v := range vs {
-			g.Dependencies = append(g.Dependencies, model.Dependency{
+	for v, rt := range best {
+		out = append(out, model.DependencyGraph{
+			Ecosystem: model.EcosystemGo, ManifestPath: rt.Origin,
+			Dependencies: []model.Dependency{{
 				Package: model.NewPackage(model.EcosystemGo, "stdlib", v), Direct: true, Scope: model.ScopeProd,
-			})
-		}
-		sort.Slice(g.Dependencies, func(i, j int) bool { return g.Dependencies[i].Version < g.Dependencies[j].Version })
-		out = append(out, g)
+			}},
+		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ManifestPath < out[j].ManifestPath })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ManifestPath != out[j].ManifestPath {
+			return out[i].ManifestPath < out[j].ManifestPath
+		}
+		return out[i].Dependencies[0].Version < out[j].Dependencies[0].Version
+	})
 	return out
+}
+
+// stdlibOriginRank orders declarations by how authoritative they are for
+// the toolchain that builds the code: go.mod toolchain, version files,
+// Dockerfiles, then CI and everything else.
+func stdlibOriginRank(rt model.Runtime) int {
+	base := path.Base(rt.Origin)
+	switch {
+	case rt.Via == "toolchain":
+		return 0
+	case base == ".go-version" || base == ".tool-versions":
+		return 1
+	case strings.HasPrefix(base, "Dockerfile"):
+		return 2
+	}
+	return 3
+}
+
+// betterOrigin: lower rank, then shallower path, then lexical order.
+func betterOrigin(a, b model.Runtime) bool {
+	ra, rb := stdlibOriginRank(a), stdlibOriginRank(b)
+	if ra != rb {
+		return ra < rb
+	}
+	da, db := strings.Count(a.Origin, "/"), strings.Count(b.Origin, "/")
+	if da != db {
+		return da < db
+	}
+	return a.Origin < b.Origin
 }
 
 // runtimeFindings reports EOL and soon-EOL runtimes, one per declaration.
