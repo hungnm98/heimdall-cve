@@ -86,9 +86,9 @@ Or over HTTP: `bin/heimdall mcp --transport http` serves `http://127.0.0.1:8090/
 - Every tool call is written to the audit log as `mcp:<client name>`. No tool returns secrets.
 - Resources: `heimdall://runs/latest`, `heimdall://config` (redacted). Prompts: the routines
   in [prompts/](prompts) (`daily-scan`, `analyze-library`, `refresh-intel`).
-- The inventory, analysis queue, agent writes and `notify_user` need a store implementing
-  agent intelligence (`store.Intel`): currently only `memory`; the Postgres store does not
-  implement it yet, so with Postgres these tools answer "unavailable".
+- The inventory, analysis queue, agent writes and `notify_user` use the store's agent
+  intelligence (`store.Intel`), implemented by both `postgres` and `memory`. The inventory
+  is filled by scans, so run a scan before asking agents to analyze libraries.
 
 ## Docs
 

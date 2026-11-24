@@ -148,7 +148,7 @@ cmd/heimdall ──► internal/app (wiring) ──► internal/core (pipeline, 
 - `scan_*` chỉ enqueue job; `serve`/`worker` mới chạy job (`mcp` không chạy worker).
 - Rate limit `notify_user` đếm bằng key `agent.message.count:<ngày UTC>:<n>` qua `Store.MarkNotified` (giữ qua nhiều process); tin trùng cũng tốn một slot; dedup đánh dấu trước khi gửi (gửi lỗi thì không gửi lại tin y hệt).
 - Resource: `heimdall://runs/latest` (JSON) và `heimdall://config` (redacted); không có `reports/latest.md` (mcpserver không được import adapter report).
-- Còn lại: **Postgres store chưa implement `store.Intel`** → với Postgres, inventory/queue/submit/notify trả "unavailable" (cần migration + contract kit `storetest.RunIntel`, kit này cũng chưa có dù `store.Intel` có nhắc tới).
+- Postgres implement `store.Intel` (migration `0005_intel.sql`, contract kit `storetest.RunIntel` chạy cho cả memstore và Postgres). Còn lại: xác thực cho transport HTTP của MCP, retention cho advisory/phân tích của agent.
 
 Ý tưởng: AI agent được coi như **một `VulnSource` tên `agent`**. Agent tự đi nghiên cứu lib (changelog, issue, advisory mới chưa vào OSV, dấu hiệu lib bị bỏ rơi/bị chiếm quyền), rồi ghi kết quả ngược vào Heimdall qua MCP. Kết quả đó đi qua **cùng pipeline dedup/store/notify** như OSV.
 
