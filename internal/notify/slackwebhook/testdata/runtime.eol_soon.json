@@ -1,0 +1,29 @@
+{
+  "text": "Go 1.24 EOL soon",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": ":hourglass_flowing_sand: Go 1.24 EOL soon",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "acme/api declares go 1.24"
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "Heimdall · `runtime.eol_soon` · #sec-deps"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "text": "[AI agent] Agent note",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": ":robot_face: Agent note",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": ":warning: *AI agent — unverified.* Posted by an AI agent; not confirmed by a trusted vulnerability source."
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "golang.org/x/net looks unmaintained"
+      }
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "Open example.com",
+            "emoji": true
+          },
+          "url": "https://example.com",
+          "action_id": "link-0"
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "Heimdall · `agent.message` · #sec-deps"
+        }
+      ]
+    }
+  ]
+}

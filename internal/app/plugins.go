@@ -5,6 +5,9 @@ package app
 import (
 	_ "github.com/hungnm98/heimdall-cve/internal/ecosystem/gomod"
 	_ "github.com/hungnm98/heimdall-cve/internal/jobs/inline"
+	_ "github.com/hungnm98/heimdall-cve/internal/notify/slackwebhook"
+	_ "github.com/hungnm98/heimdall-cve/internal/report/json"
+	_ "github.com/hungnm98/heimdall-cve/internal/report/markdown"
 	_ "github.com/hungnm98/heimdall-cve/internal/runtime/golang"
 	_ "github.com/hungnm98/heimdall-cve/internal/store/memstore"
 	_ "github.com/hungnm98/heimdall-cve/internal/store/postgres"
