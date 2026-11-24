@@ -40,8 +40,11 @@ targets:
   # GitHub Enterprise Server:
   # - { kind: org, name: team, base_url: https://ghe.example.com/api/v3, auth: gh-pat }
 
-ecosystems: [go]
-private_modules: ["github.com/acme/*"]  # never sent to public sources
+# Ecosystems to scan. Empty (default) = every one compiled in: go, npm, rubygems.
+# A repo with Go, Node.js and Ruby projects is scanned for all of them in one pass.
+# ecosystems: [go, npm, rubygems]
+# Never sent to public sources (glob: Go module paths, npm names/scopes, gem names).
+private_modules: ["github.com/acme/*", "@acme/*", "acme-*"]
 skip_paths: ["node_modules/", "vendor/", "testdata/", ".git/", "examples/"]
 
 # Check sources. The key is the source name; `type` defaults to the key.

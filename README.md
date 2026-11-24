@@ -5,7 +5,7 @@ reads dependency manifests on the default (or configured) branch, checks them
 and the declared language runtimes against vulnerability and end-of-life data,
 and tells you what to upgrade, through reports, Slack and an MCP server for AI agents.
 
-Status: **MVP wired end to end** (Go ecosystem, OSV + endoflife, GitHub token/App/SSH,
+Status: **MVP wired end to end** (Go, Node.js and Ruby — multi-language repos in one pass; OSV + endoflife, GitHub token/App/SSH,
 Postgres, asynq + Valkey, Slack webhook, React UI). See [docs/PLAN.md](docs/PLAN.md) for what is next.
 See [docs/PLAN.md](docs/PLAN.md).
 

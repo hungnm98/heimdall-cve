@@ -6,7 +6,7 @@
 
 | Hạng mục | MVP | Để sau |
 |---|---|---|
-| Ecosystem | **Go** (go.mod, go.work) qua `golang.org/x/mod/modfile` + runtime Go | npm, rubygems (đánh giá osv-scalibr lúc đó) |
+| Ecosystem | ✅ **Go** (go.mod/go.work), **npm** (package-lock v1–v3, shrinkwrap, yarn v1/berry, pnpm v5–v9, workspaces), **RubyGems** (Gemfile.lock, gems.locked, Gemfile); runtime Go/Node/Ruby. Mặc định quét mọi ecosystem, một repo nhiều ngôn ngữ quét trong một lần | Python, Java… |
 | Vuln source | **OSV.dev** (1 source chung, đã gom GHSA + Go vulndb) | ghsa, govulndb, nvd, kev, epss, … |
 | Runtime EOL | endoflife.date (`go`) + OSV `stdlib`/`toolchain` | node, ruby |
 | Dedup | Gộp advisory theo ID + aliases; finding ID ổn định → không ghi 2 lỗi, không notify lặp | — |
