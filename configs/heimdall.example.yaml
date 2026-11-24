@@ -1,0 +1,83 @@
+# Heimdall example config. YAML or JSON both work (same keys).
+# Secrets are never inlined: reference an env var (*_env) or a file (*_file).
+# Scalar keys with a value or default can be overridden with HEIMDALL_<KEY>, e.g. HEIMDALL_CACHE_TTL.
+
+# Named credentials. Each target picks one with `auth` (and optionally `list_auth`).
+auth_profiles:
+  gh-app:
+    type: app                          # GitHub App: installation auto-discovered per owner
+    app_id_env: HEIMDALL_GH_APP_ID
+    private_key_file: /secrets/gh-app.pem
+  gh-pat:
+    type: token                        # classic / fine-grained PAT or GITHUB_TOKEN
+    token_env: GITHUB_TOKEN
+  gh-ssh:
+    type: ssh                          # git over SSH (ssh-agent used when key_file is empty)
+    key_file: ~/.ssh/id_ed25519
+    known_hosts: ~/.ssh/known_hosts
+
+# What to scan. kind: org | user | repo. provider defaults to github.
+targets:
+  - kind: org
+    name: acme
+    auth: gh-app
+    filters:
+      include: ["*"]
+      exclude: ["sandbox-*", "*-archive"]
+      skip_archived: true              # default true
+      skip_forks: true                 # default true
+  - kind: user
+    name: some-dev
+    auth: gh-pat
+  - kind: repo
+    url: git@github.com:acme/payments.git
+    auth: gh-ssh
+    branch: develop                    # default: the repo's default branch
+  - kind: org                          # SSH cannot list repos: use list_auth or a static list
+    name: acme-internal
+    auth: gh-ssh
+    list_auth: gh-pat
+  # GitHub Enterprise Server:
+  # - { kind: org, name: team, base_url: https://ghe.example.com/api/v3, auth: gh-pat }
+
+ecosystems: [go]
+private_modules: ["github.com/acme/*"]  # never sent to public sources
+skip_paths: ["node_modules/", "vendor/", "testdata/", ".git/", "examples/"]
+
+# Check sources. The key is the source name; `type` defaults to the key.
+sources:
+  osv: { enabled: true }
+  endoflife: { enabled: true }
+
+# Notification channels. Several instances of one type may coexist.
+notify:
+  slack-sec:
+    type: slack-webhook
+    webhook_env: SLACK_WEBHOOK_URL
+
+report:
+  formats: [md, json]
+  dir: reports
+
+policy:
+  sla_days: { CRITICAL: 7, HIGH: 30, MEDIUM: 90 }
+  fail_on: HIGH                        # exit code 1 when an open finding is at least this severe
+  eol_warning_days: 90
+  suppressions_file: .heimdall-ignore.yaml
+
+# Where scan history, findings and metadata live. Run `heimdall db migrate` once
+# (and after upgrades); it is safe to run repeatedly and concurrently.
+store:
+  type: postgres
+  dsn_env: HEIMDALL_PG_DSN             # e.g. postgres://heimdall:***@db:5432/heimdall?sslmode=require
+  schema: heimdall
+  max_conns: 10
+  # Local runs without a database: { type: memory } (state is lost on exit)
+
+cache:
+  dir: ~/.cache/heimdall
+  ttl: 24h
+
+concurrency:
+  repos: 8
+  http_per_host: 4

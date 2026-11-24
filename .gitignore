@@ -1,0 +1,8 @@
+/bin/
+/reports/
+*.db
+*.db-journal
+*.db-wal
+heimdall.yaml
+heimdall.json
+.heimdall-ignore.local.yaml
