@@ -11,15 +11,6 @@ import (
 	"github.com/hungnm98/heimdall-cve/internal/store"
 )
 
-// secretAAD binds a sealed value to its secrets row, so a ciphertext copied
-// into another row does not open.
-//
-// It must produce the same bytes as SecretAAD in secret_aad.go (owned by the
-// AuthProfiles service, which seals the secrets this resolver opens).
-func secretAAD(id int64) []byte {
-	return []byte("heimdall-secret:" + strconv.FormatInt(id, 10))
-}
-
 // catalogSecrets resolves secret.Ref{ID} from the encrypted secrets table.
 type catalogSecrets struct {
 	cat  store.Catalog
@@ -49,7 +40,7 @@ func (r catalogSecrets) Resolve(ctx context.Context, ref secret.Ref) (string, er
 	if err != nil {
 		return "", fmt.Errorf("secret %d: %w", id, err)
 	}
-	v, err := r.keys.Open(rec.Sealed, secretAAD(id))
+	v, err := r.keys.Open(rec.Sealed, SecretAAD(id))
 	if err != nil {
 		return "", fmt.Errorf("secret %d: %w", id, err)
 	}

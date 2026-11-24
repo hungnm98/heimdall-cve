@@ -31,7 +31,7 @@ func seal(t *testing.T, cat store.Catalog, keys *secret.KeyRing, value string) i
 	if err := cat.SaveSecret(ctx, rec); err != nil {
 		t.Fatal(err)
 	}
-	s, err := keys.Seal([]byte(value), secretAAD(rec.ID))
+	s, err := keys.Seal([]byte(value), SecretAAD(rec.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,7 @@ VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 LDFLAGS  := -s -w -X $(PKG)/internal/cli.Version=$(VERSION) -X $(PKG)/internal/cli.Commit=$(COMMIT)
 
-.PHONY: build test race vet lint fmt golden check test-pg
+.PHONY: build test race vet lint fmt golden check test-pg web
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/heimdall
@@ -33,3 +33,8 @@ check: vet race
 test-pg:
 	@test -n "$$HEIMDALL_TEST_PG_DSN" || (echo "set HEIMDALL_TEST_PG_DSN" && exit 1)
 	go test -race -count=1 ./internal/store/postgres/
+
+# Builds the React UI and copies it where internal/webui embeds it
+# (internal/webui/dist; the committed copy is only a placeholder). Run before `make build`.
+web:
+	npm --prefix web ci && npm --prefix web run build && rm -rf internal/webui/dist && cp -R web/dist internal/webui/dist

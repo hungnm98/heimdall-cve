@@ -6,3 +6,4 @@
 heimdall.yaml
 heimdall.json
 .heimdall-ignore.local.yaml
+/.claude/
