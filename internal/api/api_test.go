@@ -588,7 +588,7 @@ func TestSecurityHeadersAndHealth(t *testing.T) {
 			t.Errorf("%s: %d", path, rec.Code)
 		}
 		h := rec.Header()
-		if !strings.Contains(h.Get("Content-Security-Policy"), "default-src 'self'") || h.Get("X-Frame-Options") != "DENY" ||
+		if !strings.Contains(h.Get("Content-Security-Policy"), "default-src 'self'; script-src 'self';") || h.Get("X-Frame-Options") != "DENY" ||
 			h.Get("Referrer-Policy") != "no-referrer" || h.Get("X-Content-Type-Options") != "nosniff" || h.Get("X-Request-ID") == "" {
 			t.Errorf("%s: headers %v", path, h)
 		}
