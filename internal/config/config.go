@@ -366,7 +366,7 @@ func Exists(p string) bool {
 
 // DefaultSources are enabled when the config file has no `sources` section:
 // a scanner with no vulnerability source would silently find nothing.
-var DefaultSources = []string{"osv", "endoflife"}
+var DefaultSources = []string{"osv", "endoflife", "kev", "epss"}
 
 // keepEmptyBlocks restores plugin blocks written as `name: {}`: viper drops
 // keys whose value is an empty map, which silently disabled such plugins

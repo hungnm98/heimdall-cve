@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"log/slog"
 	"path"
 	"sort"
@@ -643,25 +644,50 @@ func unknownCount(fs []model.Finding) int {
 	return n
 }
 
-// priority: KEV and malicious first, then severity, EPSS, direct and prod.
+// priority ranks a finding 0–100 by urgency, in three bands:
+//
+//	90–100  exploited in the wild (CISA KEV) or a malicious package
+//	70–89   likely to be exploited soon (EPSS >= 0.1)
+//	 0–69   everything else, by impact (CVSS, else severity) and EPSS
+//
+// then scaled down for context: ×0.9 for an indirect dependency (not for
+// KEV/malicious: Log4Shell spread mostly as a transitive dependency), ×0.5
+// for a dev-only one. So Log4Shell-class bugs (KEV, CVSS 10) score 100 and a
+// critical CVSS with negligible EPSS about 64.
 func priority(f model.Finding) float64 {
-	score := float64(f.Severity.Rank()) * 10
-	if f.CVSSScore > 0 {
-		score = f.CVSSScore * 10
+	impact := f.CVSSScore / 10
+	if impact <= 0 {
+		impact = severityImpact[f.Severity]
 	}
-	if f.EPSS > 0 {
-		score *= 1 + f.EPSS
+	epss := min(max(f.EPSS, 0), 1)
+	var score float64
+	switch {
+	case f.InKEV || f.Malicious:
+		score = 90 + 10*max(impact, severityImpact[model.SeverityHigh])
+	case epss >= epssLikely:
+		score = 70 + 10*impact + 9*epss
+	default:
+		score = 65*impact + 4*epss/epssLikely
 	}
-	if !f.Direct {
-		score *= 0.8
+	if f.Kind == model.KindDependency && !f.Direct && !f.InKEV && !f.Malicious {
+		score *= 0.9
 	}
 	if f.Scope == model.ScopeDev {
-		score *= 0.3
+		score *= 0.5
 	}
-	if f.InKEV || f.Malicious {
-		score += 1000
-	}
-	return score
+	return math.Round(min(score, 100)*10) / 10
+}
+
+// epssLikely is the EPSS at which a finding counts as likely to be exploited.
+const epssLikely = 0.1
+
+// severityImpact stands in for CVSS/10 when a finding has no score.
+var severityImpact = map[model.Severity]float64{
+	model.SeverityCritical: 0.95,
+	model.SeverityHigh:     0.8,
+	model.SeverityMedium:   0.55,
+	model.SeverityLow:      0.3,
+	model.SeverityUnknown:  0.5,
 }
 
 func (p *Pipeline) markScanned(ctx context.Context, results []*repoResult, at time.Time) {

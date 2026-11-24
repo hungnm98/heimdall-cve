@@ -7,7 +7,8 @@
 | Hạng mục | MVP | Để sau |
 |---|---|---|
 | Ecosystem | ✅ **Go** (go.mod/go.work), **npm** (package-lock v1–v3, shrinkwrap, yarn v1/berry, pnpm v5–v9, workspaces), **RubyGems** (Gemfile.lock, gems.locked, Gemfile); runtime Go/Node/Ruby. Mặc định quét mọi ecosystem, một repo nhiều ngôn ngữ quét trong một lần | Python, Java… |
-| Vuln source | ✅ **OSV.dev** (gom GHSA + Go vulndb; severity của GO-* lấy từ alias GHSA/CVE) + **NVD** enricher (CVSS cho finding còn thiếu, cache, tôn trọng rate limit) | kev, epss, ghsa trực tiếp, … |
+| Vuln source | ✅ **OSV.dev** (gom GHSA + Go vulndb; severity của GO-* lấy từ alias GHSA/CVE) + enricher **NVD** (CVSS cho finding còn thiếu, cache, tôn trọng rate limit), **CISA KEV** (đang bị khai thác thật), **EPSS** (xác suất bị khai thác 30 ngày) | ghsa trực tiếp, … |
+| Ưu tiên | ✅ Điểm `priority` 0–100: 90–100 KEV/malicious, 70–89 EPSS ≥ 0.1, 0–69 còn lại theo CVSS/severity + EPSS; ×0.9 indirect (trừ KEV/malicious), ×0.5 dev-only | — |
 | Runtime EOL | endoflife.date (`go`) + OSV `stdlib`/`toolchain` | node, ruby |
 | Dedup | Gộp advisory theo ID + aliases; finding ID ổn định → không ghi 2 lỗi, không notify lặp | — |
 | VCS / auth | GitHub: **token**, **GitHub App**, **SSH**; GHES qua `base_url` | GitLab, Bitbucket… |

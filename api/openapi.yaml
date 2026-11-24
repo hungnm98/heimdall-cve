@@ -765,7 +765,7 @@ components:
         recommended_version: { type: string }
         bump: { $ref: "#/components/schemas/BumpType" }
         advice: { type: string }
-        priority: { type: number }
+        priority: { type: number, minimum: 0, maximum: 100, description: "urgency 0–100: 90+ in CISA KEV or malicious, 70+ EPSS >= 0.1, below by CVSS/severity and EPSS; x0.9 indirect (not KEV/malicious), x0.5 dev-only" }
         runtime: { $ref: "#/components/schemas/RuntimeStatus" }
         sources: { type: array, items: { type: string } }
         first_seen: { type: string, format: date-time }

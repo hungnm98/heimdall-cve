@@ -64,3 +64,14 @@ var (
 	Runtime   = registry.New[RuntimeFactory]("runtime-source")
 	Latest    = registry.New[LatestFactory]("latest-version-source")
 )
+
+// CVEs returns the CVE ids among a finding's advisory id and aliases, in order.
+func CVEs(f *model.Finding) []string {
+	var out []string
+	for _, id := range append([]string{f.AdvisoryID}, f.Aliases...) {
+		if len(id) > 4 && id[:4] == "CVE-" {
+			out = append(out, id)
+		}
+	}
+	return out
+}

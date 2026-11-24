@@ -55,6 +55,8 @@ sources:
   nvd:                            # CVSS for findings still without severity (CVE aliases)
     api_key_env: NVD_API_KEY      # optional: 50 instead of 5 requests / 30 s
     max_lookups: 200              # uncached CVEs per run; the rest on the next runs
+  kev: {}                         # CISA Known Exploited Vulnerabilities: priority 90–100 (catalog cached 24h)
+  epss: {}                        # FIRST EPSS exploit probability (cached 24h per CVE)
 
 # Notification channels. Several instances of one type may coexist.
 notify:

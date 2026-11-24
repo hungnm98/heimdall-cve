@@ -26,12 +26,29 @@ export function findingTitle(f: Finding) {
   return f.advisory_id ?? f.id;
 }
 
+/** Priority 0–100 (90+ exploited, 70+ likely exploited), with EPSS when known. */
+function PriorityScore({ finding: f }: { finding: Finding }) {
+  if (f.priority === undefined) return <span className="text-muted-foreground">—</span>;
+  const tone = f.priority >= 90 ? "text-red-600 dark:text-red-400" : f.priority >= 70 ? "text-orange-600 dark:text-orange-400" : "";
+  return (
+    <div className="whitespace-nowrap tabular-nums">
+      <span className={`font-semibold ${tone}`}>{Math.round(f.priority)}</span>
+      {f.epss ? <div className="text-xs text-muted-foreground">EPSS {(f.epss * 100).toFixed(1)}%</div> : null}
+    </div>
+  );
+}
+
 function columns(showRepo: boolean): ColumnDef<Finding>[] {
   const cols: ColumnDef<Finding>[] = [
     {
       id: "severity",
       header: "Severity",
       cell: ({ row }) => <SeverityBadge severity={row.original.severity} />,
+    },
+    {
+      id: "priority",
+      header: "Priority",
+      cell: ({ row }) => <PriorityScore finding={row.original} />,
     },
     {
       id: "what",
