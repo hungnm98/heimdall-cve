@@ -29,6 +29,10 @@ func TestCatalogContract(t *testing.T) {
 	storetest.RunCatalog(t, newTestStore(t))
 }
 
+func TestIntelContract(t *testing.T) {
+	storetest.RunIntel(t, newTestStore(t))
+}
+
 // newTestStore skips without a database and returns a factory that opens a
 // store in a fresh schema, dropped when the test ends.
 func newTestStore(t *testing.T) func(t *testing.T) store.Store {
