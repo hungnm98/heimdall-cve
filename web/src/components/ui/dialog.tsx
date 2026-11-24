@@ -1,10 +1,35 @@
 import { XIcon } from "lucide-react";
 import { AlertDialog as AD, Dialog as D } from "radix-ui";
-import type * as React from "react";
+import * as React from "react";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "./button";
 
-// Radix Dialog traps focus, restores it on close and closes on ESC.
+// Radix Dialog traps focus and closes on ESC. Our dialogs are mostly opened from
+// state (no <Dialog.Trigger>), in which case Radix would send focus to <body> on
+// close; useReturnFocus restores it to whatever opened the dialog.
+
+function useReturnFocus<E extends { defaultPrevented: boolean; preventDefault: () => void }>(
+  onOpenAutoFocus?: (e: Event) => void,
+  onCloseAutoFocus?: (e: E) => void,
+) {
+  const returnTo = React.useRef<HTMLElement | null>(null);
+  return {
+    // Fires before Radix moves focus into the dialog, so activeElement is the opener.
+    onOpenAutoFocus: (e: Event) => {
+      returnTo.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      onOpenAutoFocus?.(e);
+    },
+    onCloseAutoFocus: (e: E) => {
+      onCloseAutoFocus?.(e);
+      if (e.defaultPrevented) return;
+      const el = returnTo.current;
+      if (el && el.isConnected && el !== document.body) {
+        e.preventDefault();
+        el.focus();
+      }
+    },
+  };
+}
 
 export const Dialog = D.Root;
 export const DialogTrigger = D.Trigger;
@@ -17,12 +42,15 @@ const panel =
 export function DialogContent({
   className,
   children,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof D.Content>) {
+  const focus = useReturnFocus(onOpenAutoFocus, onCloseAutoFocus);
   return (
     <D.Portal>
       <D.Overlay className={overlay} />
-      <D.Content className={cn(panel, className)} {...props}>
+      <D.Content className={cn(panel, className)} {...focus} {...props}>
         {children}
         <D.Close
           className="absolute right-3 top-3 rounded-sm p-1 opacity-70 hover:opacity-100"
@@ -63,8 +91,11 @@ export function DialogDescription({
 export function SheetContent({
   className,
   children,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof D.Content>) {
+  const focus = useReturnFocus(onOpenAutoFocus, onCloseAutoFocus);
   return (
     <D.Portal>
       <D.Overlay className={overlay} />
@@ -73,6 +104,7 @@ export function SheetContent({
           "fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r bg-background shadow-lg",
           className,
         )}
+        {...focus}
         {...props}
       >
         {children}
@@ -114,7 +146,7 @@ export function ConfirmDialog({
     <AD.Root open={open} onOpenChange={onOpenChange}>
       <AD.Portal>
         <AD.Overlay className={overlay} />
-        <AD.Content className={panel}>
+        <ConfirmContent>
           <AD.Title className="text-lg font-semibold">{title}</AD.Title>
           <AD.Description className="text-sm text-muted-foreground">{description}</AD.Description>
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -131,8 +163,17 @@ export function ConfirmDialog({
               {confirmLabel}
             </AD.Action>
           </div>
-        </AD.Content>
+        </ConfirmContent>
       </AD.Portal>
     </AD.Root>
+  );
+}
+
+function ConfirmContent({ children }: { children: React.ReactNode }) {
+  const focus = useReturnFocus<Event>();
+  return (
+    <AD.Content className={panel} {...focus}>
+      {children}
+    </AD.Content>
   );
 }

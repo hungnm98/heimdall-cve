@@ -58,7 +58,7 @@ function UpgradePlan({ plan }: { plan: RepoDetail["upgrade_plan"] }) {
             <TD className="hidden text-xs md:table-cell">
               <span className="font-mono">{u.advisories.join(", ")}</span>
             </TD>
-            <TD>{u.advice ? <CopyButton text={u.advice} label="Copy" /> : <span className="text-muted-foreground">—</span>}</TD>
+            <TD>{u.advice ? <CopyButton text={u.advice} label="Copy" ariaLabel={`Copy upgrade command for ${u.package.name}`} /> : <span className="text-muted-foreground">—</span>}</TD>
           </TR>
         ))}
       </TBody>

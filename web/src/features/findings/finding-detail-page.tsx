@@ -151,7 +151,7 @@ export function FindingDetailPage() {
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="flex flex-col gap-4 lg:col-span-2">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
           <Card>
             <CardHeader>
               <CardTitle>Remediation</CardTitle>
@@ -212,7 +212,7 @@ export function FindingDetailPage() {
           ) : null}
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <Card>
             <CardHeader>
               <CardTitle>Details</CardTitle>

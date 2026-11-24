@@ -18,7 +18,7 @@ export function TrendChart({ runs }: { runs: ScanRun[] }) {
   if (data.length === 0) return <p className="text-sm text-muted-foreground">No completed runs yet.</p>;
 
   return (
-    <figure>
+    <figure className="relative">
       <div className="h-64 w-full" aria-hidden>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -16 }} barCategoryGap="20%">
@@ -57,7 +57,8 @@ export function TrendChart({ runs }: { runs: ScanRun[] }) {
         </ResponsiveContainer>
       </div>
       <figcaption className="sr-only">Open findings by severity for the last {data.length} runs.</figcaption>
-      <table className="sr-only">
+      <div className="sr-only">
+      <table>
         <thead>
           <tr>
             <th>Run</th>
@@ -83,6 +84,7 @@ export function TrendChart({ runs }: { runs: ScanRun[] }) {
           ))}
         </tbody>
       </table>
+      </div>
     </figure>
   );
 }

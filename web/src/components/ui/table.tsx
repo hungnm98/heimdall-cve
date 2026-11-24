@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 /** The wrapper scrolls horizontally so wide tables never widen the page on phones. */
 export function Table({ className, ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="w-full overflow-x-auto rounded-lg border bg-card">
+    <div className="relative w-full overflow-x-auto rounded-lg border bg-card">
       <table className={cn("w-full caption-bottom text-sm", className)} {...props} />
     </div>
   );

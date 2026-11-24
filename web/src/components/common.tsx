@@ -134,13 +134,13 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+export function CopyButton({ text, label = "Copy", ariaLabel }: { text: string; label?: string; ariaLabel?: string }) {
   const [copied, setCopied] = React.useState(false);
   return (
     <Button
       variant="outline"
       size="sm"
-      aria-label={copied ? "Copied" : label}
+      aria-label={copied ? "Copied" : (ariaLabel ?? label)}
       onClick={async () => {
         if (await copyText(text)) {
           setCopied(true);
