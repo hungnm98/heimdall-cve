@@ -17,6 +17,7 @@ import (
 	"github.com/hungnm98/heimdall-cve/internal/model"
 	"github.com/hungnm98/heimdall-cve/internal/plugin"
 	"github.com/hungnm98/heimdall-cve/internal/secret"
+	"github.com/robfig/cron/v3"
 	"github.com/spf13/viper"
 )
 
@@ -95,12 +96,22 @@ func (p Plugin) TypeOr(name string) string {
 
 // Target is one `targets` entry.
 type Target struct {
-	Kind     string   `mapstructure:"kind"`     // org | user | repo
-	Provider string   `mapstructure:"provider"` // default github
-	BaseURL  string   `mapstructure:"base_url"`
-	Name     string   `mapstructure:"name"` // org/user login
-	URL      string   `mapstructure:"url"`  // kind=repo
-	Branch   string   `mapstructure:"branch"`
+	Kind     string `mapstructure:"kind"`     // org | user | repo
+	Provider string `mapstructure:"provider"` // default github
+	BaseURL  string `mapstructure:"base_url"`
+	Name     string `mapstructure:"name"` // org/user login
+	URL      string `mapstructure:"url"`  // kind=repo
+	Branch   string `mapstructure:"branch"`
+	// Branches are scanned besides the primary branch (Branch or the
+	// default branch): names or globs such as "release/*".
+	Branches    []string `mapstructure:"branches"`
+	MaxBranches int      `mapstructure:"max_branches"` // cap on extra branches per repo (default 10)
+	// Schedule: cron expression for full scans ("@daily", "@every 72h",
+	// "0 2 * * *"); empty = manual only. Needs `heimdall serve` or `worker`.
+	Schedule string `mapstructure:"schedule"`
+	// Poll: cron expression for a cheap check that rescans only repo
+	// branches whose commit moved ("@every 1h"); empty = off.
+	Poll     string   `mapstructure:"poll"`
 	Auth     string   `mapstructure:"auth"`
 	ListAuth string   `mapstructure:"list_auth"`
 	Repos    []string `mapstructure:"repos"` // static repo names (SSH without list_auth)
@@ -238,9 +249,20 @@ func (c *Config) Validate() error {
 				bad("%s: unknown list_auth profile %q", where, t.ListAuth)
 			}
 		}
-		for _, g := range append(append([]string{}, t.Filters.Include...), t.Filters.Exclude...) {
+		for _, g := range append(append(append([]string{}, t.Filters.Include...), t.Filters.Exclude...), t.Branches...) {
 			if _, err := path.Match(g, ""); err != nil {
 				bad("%s: bad glob %q", where, g)
+			}
+		}
+		if t.MaxBranches < 0 {
+			bad("%s: max_branches must be >= 0", where)
+		}
+		for key, expr := range map[string]string{"schedule": t.Schedule, "poll": t.Poll} {
+			if expr == "" {
+				continue
+			}
+			if _, err := cron.ParseStandard(expr); err != nil {
+				bad("%s: %s: %v", where, key, err)
 			}
 		}
 	}
@@ -269,14 +291,16 @@ func (c *Config) ModelTargets() []model.Target {
 	out := make([]model.Target, 0, len(c.Targets))
 	for _, t := range c.Targets {
 		mt := model.Target{
-			Kind:     model.TargetKind(t.Kind),
-			Provider: t.Provider,
-			BaseURL:  t.BaseURL,
-			Owner:    t.Name,
-			Branch:   t.Branch,
-			Auth:     t.Auth,
-			ListAuth: t.ListAuth,
-			Repos:    t.Repos,
+			Kind:        model.TargetKind(t.Kind),
+			Provider:    t.Provider,
+			BaseURL:     t.BaseURL,
+			Owner:       t.Name,
+			Branch:      t.Branch,
+			Branches:    t.Branches,
+			MaxBranches: t.MaxBranches,
+			Auth:        t.Auth,
+			ListAuth:    t.ListAuth,
+			Repos:       t.Repos,
 			Filter: model.RepoFilter{
 				Include:      t.Filters.Include,
 				Exclude:      t.Filters.Exclude,

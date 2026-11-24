@@ -109,13 +109,17 @@ func (h *jobHandler) HandleScan(ctx context.Context, jobID int64) error {
 	if err != nil && ctx.Err() != nil {
 		return h.interrupted(ctx, j)
 	}
+	if errors.Is(err, core.ErrNoChanges) { // a poll with nothing to do succeeds without a run
+		err = nil
+	}
 	return h.finish(ctx, j, run, err)
 }
 
 // request resolves the job scope: one target (optionally one repo of it), an
 // ad-hoc repo URL, or every enabled target.
 func (h *jobHandler) request(ctx context.Context, j *model.Job) (*core.ScanRequest, error) {
-	req := &core.ScanRequest{Trigger: j.Trigger, TargetIDs: map[string]int64{}, Force: j.Force}
+	req := &core.ScanRequest{Trigger: j.Trigger, TargetIDs: map[string]int64{}, Force: j.Force,
+		OnlyChanged: j.Trigger == model.TriggerPoll}
 	switch {
 	case j.TargetID != nil:
 		t, err := h.d.Catalog.GetTarget(ctx, *j.TargetID)

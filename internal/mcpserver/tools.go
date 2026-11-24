@@ -69,15 +69,17 @@ type analysesIn struct {
 }
 
 type findingsIn struct {
-	Repo     string `json:"repo,omitempty" jsonschema:"owner/name"`
-	Severity string `json:"severity,omitempty" jsonschema:"minimum severity: CRITICAL, HIGH, MEDIUM or LOW"`
-	Kind     string `json:"kind,omitempty" jsonschema:"dependency, runtime, code, secret or config"`
-	Status   string `json:"status,omitempty" jsonschema:"open (default), fixed, suppressed or all"`
-	KEV      bool   `json:"kev,omitempty" jsonschema:"only findings in CISA KEV"`
-	NewSince string `json:"new_since,omitempty" jsonschema:"first seen at or after this time (RFC 3339 or YYYY-MM-DD)"`
-	Q        string `json:"q,omitempty" jsonschema:"package name substring or exact advisory id / alias"`
-	Cursor   string `json:"cursor,omitempty" jsonschema:"next_cursor from the previous page"`
-	Limit    int    `json:"limit,omitempty" jsonschema:"page size (default 20, max 100)"`
+	Repo              string `json:"repo,omitempty" jsonschema:"owner/name"`
+	Severity          string `json:"severity,omitempty" jsonschema:"minimum severity: CRITICAL, HIGH, MEDIUM or LOW"`
+	Kind              string `json:"kind,omitempty" jsonschema:"dependency, runtime, code, secret or config"`
+	Status            string `json:"status,omitempty" jsonschema:"open (default), fixed, suppressed or all"`
+	KEV               bool   `json:"kev,omitempty" jsonschema:"only findings in CISA KEV"`
+	Branch            string `json:"branch,omitempty" jsonschema:"only this extra branch; omitted = every branch (primary-branch findings have no branch field)"`
+	PrimaryBranchOnly bool   `json:"primary_branch_only,omitempty" jsonschema:"only findings of each repo's primary (default or configured) branch"`
+	NewSince          string `json:"new_since,omitempty" jsonschema:"first seen at or after this time (RFC 3339 or YYYY-MM-DD)"`
+	Q                 string `json:"q,omitempty" jsonschema:"package name substring or exact advisory id / alias"`
+	Cursor            string `json:"cursor,omitempty" jsonschema:"next_cursor from the previous page"`
+	Limit             int    `json:"limit,omitempty" jsonschema:"page size (default 20, max 100)"`
 }
 
 type idIn struct {
@@ -279,7 +281,8 @@ func parseSince(v string) (time.Time, error) {
 }
 
 func (s *Server) getFindings(ctx context.Context, _ service.Actor, in findingsIn) (any, error) {
-	f := store.FindingFilter{Repo: in.Repo, InKEV: in.KEV, Query: in.Q, After: in.Cursor, Limit: toolLimit(in.Limit)}
+	f := store.FindingFilter{Repo: in.Repo, InKEV: in.KEV, Query: in.Q, After: in.Cursor, Limit: toolLimit(in.Limit),
+		Branch: in.Branch, DefaultBranchOnly: in.PrimaryBranchOnly}
 	if in.Severity != "" {
 		if f.MinSeverity = model.ParseSeverity(in.Severity); f.MinSeverity == model.SeverityUnknown {
 			return nil, badArg("severity", "must be CRITICAL, HIGH, MEDIUM or LOW")
@@ -395,7 +398,7 @@ func (s *Server) repoDetail(ctx context.Context, repo string) (*service.RepoDeta
 	if repo == "" {
 		return nil, badArg("repo", "required (owner/name)")
 	}
-	d, err := s.svcs.Repos.Get(ctx, repo)
+	d, err := s.svcs.Repos.Get(ctx, repo, "")
 	if err != nil {
 		return nil, fmt.Errorf("repo %q: %w", repo, err)
 	}

@@ -21,6 +21,10 @@ targets:
   - kind: org
     name: acme
     auth: gh-app
+    branches: ["release/*", develop]   # scanned besides the default branch (names or globs)
+    max_branches: 10                   # cap on extra branches per repo (default 10)
+    schedule: "@daily"                 # full scan (cron, UTC; "@every 72h" = every 3 days); needs `serve`/`worker`
+    poll: "@every 1h"                  # cheap check: rescan only branches whose commit moved
     filters:
       include: ["*"]
       exclude: ["sandbox-*", "*-archive"]

@@ -203,14 +203,15 @@ func (s *Store) DeleteSecret(ctx context.Context, id int64) error {
 
 // ---- targets ----
 
-const targetCols = "id, kind, provider, base_url, owner, name, branch, auth, list_auth, repos, filter, schedule, enabled, origin, next_run_at, created_at, updated_at"
+const targetCols = "id, kind, provider, base_url, owner, name, branch, auth, list_auth, repos, filter, schedule, enabled, origin, next_run_at, created_at, updated_at, branches, max_branches, poll, next_poll_at"
 
 func scanTarget(row pgx.Row) (*model.TargetSpec, error) {
 	var t model.TargetSpec
 	var kind, origin string
 	var filter []byte
 	if err := row.Scan(&t.ID, &kind, &t.Provider, &t.BaseURL, &t.Owner, &t.Name, &t.Branch, &t.Auth, &t.ListAuth,
-		&t.Repos, &filter, &t.Schedule, &t.Enabled, &origin, &t.NextRunAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		&t.Repos, &filter, &t.Schedule, &t.Enabled, &origin, &t.NextRunAt, &t.CreatedAt, &t.UpdatedAt,
+		&t.Branches, &t.MaxBranches, &t.Poll, &t.NextPollAt); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(filter, &t.Filter); err != nil {
@@ -256,16 +257,17 @@ func (s *Store) SaveTarget(ctx context.Context, t *model.TargetSpec) error {
 		return fmt.Errorf("encode target filter: %w", err)
 	}
 	args := []any{string(t.Kind), t.Provider, t.BaseURL, t.Owner, t.Name, t.Branch, t.Auth, t.ListAuth, nonNil(t.Repos),
-		filter, t.Schedule, t.Enabled, string(t.Origin), t.NextRunAt}
+		filter, t.Schedule, t.Enabled, string(t.Origin), t.NextRunAt, nonNil(t.Branches), t.MaxBranches, t.Poll, t.NextPollAt}
 	if t.ID == 0 {
 		err = s.pool.QueryRow(ctx, `INSERT INTO targets (kind, provider, base_url, owner, name, branch, auth, list_auth,
-			repos, filter, schedule, enabled, origin, next_run_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id, created_at, updated_at`,
+			repos, filter, schedule, enabled, origin, next_run_at, branches, max_branches, poll, next_poll_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING id, created_at, updated_at`,
 			args...).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt)
 	} else {
 		err = s.pool.QueryRow(ctx, `UPDATE targets SET kind = $1, provider = $2, base_url = $3, owner = $4, name = $5,
 			branch = $6, auth = $7, list_auth = $8, repos = $9, filter = $10, schedule = $11, enabled = $12, origin = $13,
-			next_run_at = $14, updated_at = now() WHERE id = $15 RETURNING created_at, updated_at`,
+			next_run_at = $14, branches = $15, max_branches = $16, poll = $17, next_poll_at = $18,
+			updated_at = now() WHERE id = $19 RETURNING created_at, updated_at`,
 			append(args, t.ID)...).Scan(&t.CreatedAt, &t.UpdatedAt)
 	}
 	switch {
@@ -300,6 +302,11 @@ func (s *Store) DeleteTarget(ctx context.Context, id int64) error {
 func (s *Store) DueTargets(ctx context.Context, now time.Time) ([]model.TargetSpec, error) {
 	return s.queryTargets(ctx, "SELECT "+targetCols+` FROM targets
 		WHERE enabled AND next_run_at <= $1 ORDER BY next_run_at, id`, now)
+}
+
+func (s *Store) DuePolls(ctx context.Context, now time.Time) ([]model.TargetSpec, error) {
+	return s.queryTargets(ctx, "SELECT "+targetCols+` FROM targets
+		WHERE enabled AND next_poll_at <= $1 ORDER BY next_poll_at, id`, now)
 }
 
 // ---- repos ----

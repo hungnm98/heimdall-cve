@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hungnm98/heimdall-cve/internal/config"
 	"github.com/hungnm98/heimdall-cve/internal/core"
 	"github.com/hungnm98/heimdall-cve/internal/jobs"
 	"github.com/hungnm98/heimdall-cve/internal/model"
@@ -26,8 +27,15 @@ func (a *App) Pipeline(cat store.Catalog, providerFor func(context.Context, mode
 		Notifiers: a.Notifiers, Reporters: a.Reporters,
 		Policy: cfg.Policy, SkipPaths: cfg.SkipPaths, Concurrency: cfg.Concurrency.Repos,
 		ReportDir: cfg.Report.Dir, UIBaseURL: strings.TrimSuffix(cfg.Server.PublicURL, "/"),
-		Logger: a.Logger, Now: time.Now,
+		SnapshotSalt: snapshotSalt(cfg),
+		Logger:       a.Logger, Now: time.Now,
 	}
+}
+
+// snapshotSalt captures the config that shapes parse results (private
+// modules), so changing it invalidates commit snapshots.
+func snapshotSalt(cfg *config.Config) string {
+	return "private=" + strings.Join(cfg.PrivateModules, ",")
 }
 
 // ConfigProviderFor resolves providers for config targets only (CLI scans).

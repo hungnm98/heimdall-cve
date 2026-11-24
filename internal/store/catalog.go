@@ -43,6 +43,8 @@ type Catalog interface {
 	DeleteTarget(ctx context.Context, id int64) error
 	// DueTargets returns enabled targets with NextRunAt <= now, oldest first.
 	DueTargets(ctx context.Context, now time.Time) ([]model.TargetSpec, error)
+	// DuePolls returns enabled targets with NextPollAt <= now, oldest first.
+	DuePolls(ctx context.Context, now time.Time) ([]model.TargetSpec, error)
 
 	// Cached repo list.
 	// UpsertRepos records the repos a target listed at `at`.

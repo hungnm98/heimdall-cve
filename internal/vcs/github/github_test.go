@@ -205,6 +205,13 @@ func (f *fakeAPI) serveRepo(w http.ResponseWriter, r *http.Request, p string) {
 	switch {
 	case rest == "":
 		_ = json.NewEncoder(w).Encode(f.repos["orgs/acme"][0])
+	case rest == "branches":
+		out, _ := gitOut("for-each-ref", "--format=%(refname:short)", "refs/heads/")
+		var bs []map[string]string
+		for _, n := range strings.Fields(out) {
+			bs = append(bs, map[string]string{"name": n})
+		}
+		_ = json.NewEncoder(w).Encode(bs)
 	case strings.HasPrefix(rest, "commits/"):
 		ref := urlUnescape(strings.TrimPrefix(rest, "commits/"))
 		if r.Header.Get("Accept") != "application/vnd.github.sha" {
@@ -659,5 +666,18 @@ func TestNextLink(t *testing.T) {
 	}
 	if nextLink(`<https://x>; rel="prev"`) != "" || nextLink("") != "" {
 		t.Fatal("no next expected")
+	}
+}
+
+func TestListBranches(t *testing.T) {
+	t.Parallel()
+	_, api := setupAPI(t)
+	ssh := setupSSH(t)
+	r := model.Repo{Provider: "github", Host: "github.com", Owner: "acme", Name: "api"}
+	for name, p := range map[string]*Provider{"api": api, "ssh": ssh} {
+		got, err := p.ListBranches(context.Background(), r)
+		if err != nil || strings.Join(got, ",") != "dev,main" {
+			t.Errorf("%s: ListBranches = %v, %v; want dev,main", name, got, err)
+		}
 	}
 }

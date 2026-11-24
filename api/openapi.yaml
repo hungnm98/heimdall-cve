@@ -245,6 +245,8 @@ paths:
     get:
       tags: [repos]
       operationId: getRepo
+      parameters:
+        - { name: branch, in: query, description: "Extra branch to show; omitted = the primary branch", schema: { type: string } }
       responses:
         "200":
           description: OK
@@ -263,6 +265,8 @@ paths:
         - { name: status, in: query, schema: { $ref: "#/components/schemas/FindingStatus" } }
         - { name: min_severity, in: query, schema: { $ref: "#/components/schemas/Severity" } }
         - { name: kev, in: query, schema: { type: boolean } }
+        - { name: branch, in: query, description: Only this extra branch, schema: { type: string } }
+        - { name: primary_branch, in: query, description: "Only primary-branch findings (default or configured branch)", schema: { type: boolean } }
         - { name: new_since, in: query, schema: { type: string, format: date-time } }
         - { name: q, in: query, description: Package name substring or exact CVE/GHSA/GO id, schema: { type: string } }
         - { $ref: "#/components/parameters/Cursor" }
@@ -572,7 +576,7 @@ components:
 
     Severity: { type: string, enum: [CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN] }
     FindingKind: { type: string, enum: [dependency, runtime, code, secret, config] }
-    FindingStatus: { type: string, enum: [open, fixed, suppressed] }
+    FindingStatus: { type: string, enum: [open, fixed, suppressed, removed], description: "removed = its branch is gone or no longer scanned" }
     BumpType: { type: string, enum: ["", patch, minor, major, no-fix-available] }
     Origin: { type: string, enum: [config, ui] }
     TargetKind: { type: string, enum: [org, user, repo] }
@@ -616,6 +620,9 @@ components:
         repos: { type: array, items: { type: string }, description: Static repo names instead of listing }
         filter: { $ref: "#/components/schemas/RepoFilter" }
         schedule: { type: string, description: "Cron expression (UTC). Presets: '0 2 * * *' daily, '0 2 */3 * *' every 3 days, '' manual" }
+        branches: { type: array, items: { type: string }, description: "Extra branches scanned besides `branch`: names or globs (release/*)" }
+        max_branches: { type: integer, minimum: 0, description: "Cap on extra branches per repo (0 = 10)" }
+        poll: { type: string, description: "Cron expression for a cheap check that rescans only branches whose commit moved; '' = off" }
         enabled: { type: boolean, default: true }
 
     Target:
@@ -629,6 +636,7 @@ components:
             label: { type: string, examples: ["org:acme", "repo:acme/api"] }
             origin: { $ref: "#/components/schemas/Origin" }
             next_run_at: { type: [string, "null"], format: date-time }
+            next_poll_at: { type: [string, "null"], format: date-time }
             created_at: { type: string, format: date-time }
             updated_at: { type: string, format: date-time }
 
@@ -728,11 +736,23 @@ components:
         advisories: { type: array, items: { type: string } }
         advice: { type: string, examples: ["go get golang.org/x/net@v0.23.0"] }
 
+    BranchStatus:
+      type: object
+      required: [name, primary, open_by_severity]
+      properties:
+        name: { type: string }
+        primary: { type: boolean }
+        head_sha: { type: string }
+        scanned_at: { type: string, format: date-time }
+        open_by_severity: { type: object, additionalProperties: { type: integer } }
+
     RepoDetail:
       type: object
-      required: [repo, findings, runtimes, upgrade_plan]
+      required: [repo, branches, findings, runtimes, upgrade_plan]
       properties:
         repo: { $ref: "#/components/schemas/RepoRecord" }
+        branch: { type: string, description: "The branch shown; empty = primary branch" }
+        branches: { type: array, items: { $ref: "#/components/schemas/BranchStatus" }, description: Scanned branches, primary first }
         findings: { type: array, items: { $ref: "#/components/schemas/Finding" } }
         runtimes: { type: array, items: { $ref: "#/components/schemas/RuntimeStatus" } }
         upgrade_plan: { type: array, items: { $ref: "#/components/schemas/UpgradeItem" } }
@@ -744,6 +764,7 @@ components:
         id: { type: string }
         kind: { $ref: "#/components/schemas/FindingKind" }
         repo: { type: string }
+        branch: { type: string, description: "Extra branch; absent = primary branch" }
         manifest_path: { type: string }
         package: { $ref: "#/components/schemas/Package" }
         direct: { type: boolean }

@@ -105,7 +105,11 @@ type TargetInput struct {
 	Repos    []string
 	Filter   model.RepoFilter
 	Schedule string // cron; "" = manual
-	Enabled  bool
+	// Branches are extra branches (names or globs) scanned besides Branch.
+	Branches    []string
+	MaxBranches int    // 0 = default cap
+	Poll        string // cron for "rescan what moved" checks; "" = off
+	Enabled     bool
 }
 
 // Targets manages what is scanned. Config-origin targets return ErrReadOnly on write.
@@ -153,15 +157,27 @@ type AuthProfiles interface {
 // RepoDetail is everything about one repo.
 type RepoDetail struct {
 	Record      model.RepoRecord
-	Findings    []model.Finding // open, worst first
+	Branch      string          // the branch shown: "" = primary branch
+	Branches    []BranchStatus  // every scanned branch, primary first
+	Findings    []model.Finding // open on Branch, worst first
 	Runtimes    []model.RuntimeStatus
 	UpgradePlan []model.UpgradeItem
+}
+
+// BranchStatus is one scanned branch of a repo.
+type BranchStatus struct {
+	Name           string // the branch (ref) name
+	Primary        bool   // the target branch or default branch (findings Branch "")
+	HeadSHA        string
+	ScannedAt      time.Time
+	OpenBySeverity map[model.Severity]int
 }
 
 // Repos reads the cached repo list.
 type Repos interface {
 	List(ctx context.Context, f store.RepoFilter) (*Page[model.RepoRecord], error)
-	Get(ctx context.Context, fullName string) (*RepoDetail, error)
+	// Get returns a repo's open findings on branch ("" = primary branch).
+	Get(ctx context.Context, fullName, branch string) (*RepoDetail, error)
 }
 
 // ---- findings ----

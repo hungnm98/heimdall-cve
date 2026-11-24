@@ -15,12 +15,16 @@ const (
 type TargetSpec struct {
 	ID int64
 	Target
-	Schedule  string // cron expression; empty = manual only
-	Enabled   bool
-	Origin    Origin
-	NextRunAt *time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Schedule string // cron expression; empty = manual only
+	// Poll is a cron expression for a cheap check: resolve each repo's
+	// branches and rescan only those whose commit moved. Empty = off.
+	Poll       string
+	NextPollAt *time.Time
+	Enabled    bool
+	Origin     Origin
+	NextRunAt  *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // AuthProfile is a stored credential profile. Options never hold secret
@@ -57,6 +61,7 @@ type JobTrigger string
 const (
 	TriggerManual   JobTrigger = "manual"
 	TriggerSchedule JobTrigger = "schedule"
+	TriggerPoll     JobTrigger = "poll" // only repos/branches whose commit moved
 	TriggerAPI      JobTrigger = "api"
 	TriggerMCP      JobTrigger = "mcp"
 	TriggerCLI      JobTrigger = "cli"

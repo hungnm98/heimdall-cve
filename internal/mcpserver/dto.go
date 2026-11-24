@@ -166,6 +166,7 @@ type findingOut struct {
 	ID                 string      `json:"id"`
 	Kind               string      `json:"kind"`
 	Repo               string      `json:"repo"`
+	Branch             string      `json:"branch,omitempty"`
 	Manifest           string      `json:"manifest,omitempty"`
 	Package            *pkgOut     `json:"package,omitempty"`
 	Direct             bool        `json:"direct,omitempty"`
@@ -247,7 +248,7 @@ func toTriage(it service.TriageItem) triageOut {
 
 func toFinding(f model.Finding) findingOut {
 	out := findingOut{
-		ID: f.ID, Kind: string(f.Kind), Repo: f.Repo, Manifest: f.ManifestPath, Direct: f.Direct,
+		ID: f.ID, Kind: string(f.Kind), Repo: f.Repo, Branch: f.Branch, Manifest: f.ManifestPath, Direct: f.Direct,
 		AdvisoryID: f.AdvisoryID, Aliases: f.Aliases, Summary: f.Summary, Severity: string(f.Severity), CVSSScore: f.CVSSScore,
 		EPSS: f.EPSS, KEV: f.InKEV, Malicious: f.Malicious, Verified: f.Verified, FixedVersions: f.FixedVersions,
 		RecommendedVersion: f.RecommendedVersion, Bump: string(f.Bump), Priority: f.Priority, Status: string(f.Status),

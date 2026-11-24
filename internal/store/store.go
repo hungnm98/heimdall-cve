@@ -28,7 +28,11 @@ type FindingFilter struct {
 	Status      model.FindingStatus
 	MinSeverity model.Severity
 	InKEV       bool
-	NewSince    time.Time // FirstSeen >= NewSince
+	// Branch: only findings of this extra branch ("" = no branch filter).
+	Branch string
+	// DefaultBranchOnly: only default-branch findings (dashboards, counts).
+	DefaultBranchOnly bool
+	NewSince          time.Time // FirstSeen >= NewSince
 	// Query matches a package name substring (case-insensitive) or an exact
 	// advisory ID / alias (CVE-..., GHSA-..., GO-...).
 	Query string
@@ -86,11 +90,13 @@ type Store interface {
 	LatestRun(ctx context.Context, before int64) (*model.ScanRun, error)
 	ListRuns(ctx context.Context, limit int) ([]model.ScanRun, error)
 
-	// RecordFindings stores what run found in the repos it scanned:
-	//  - a finding seen before keeps FirstSeen; LastSeen = at; fixed → reopened
+	// RecordFindings stores what run found in the scopes it scanned
+	// (model.ScopeKey: "owner/name" = default branch, "owner/name@branch"):
+	//  - a finding seen before keeps FirstSeen; LastSeen = at; fixed or
+	//    removed → reopened
 	//  - a suppressed finding stays suppressed
-	//  - an open finding of a repo in scanned that is absent becomes fixed
-	//  - repos not in scanned are untouched (a failed repo is not "fixed")
+	//  - an open finding of a scope in scanned that is absent becomes fixed
+	//  - scopes not in scanned are untouched (a failed repo is not "fixed")
 	//  - findings sharing an ID within one call are stored once (last wins)
 	// It returns the change relative to the previous state: New holds first
 	// sightings and reopened findings, never suppressed ones.
@@ -102,13 +108,30 @@ type Store interface {
 	// repos that run `to` scanned.
 	DiffRuns(ctx context.Context, from, to int64) (*model.Diff, error)
 
+	// MarkBranchesRemoved sets open findings of repo's extra branches that
+	// are not in keep to StatusRemoved (branch deleted or no longer scanned)
+	// and returns them.
+	MarkBranchesRemoved(ctx context.Context, repo string, keep []string) ([]model.Finding, error)
+
 	// GetRepoState returns ErrNotFound when the repo/ref was never scanned.
 	GetRepoState(ctx context.Context, repo, ref string) (*model.RepoState, error)
 	PutRepoState(ctx context.Context, s model.RepoState) error
+	// ListRepoStates returns the scanned refs of a repo, by ref.
+	ListRepoStates(ctx context.Context, repo string) ([]model.RepoState, error)
 
 	// MarkNotified records an idempotency key (e.g. "finding.new:<id>").
 	// It returns true the first time a key is seen, false afterwards.
 	MarkNotified(ctx context.Context, key string, at time.Time) (bool, error)
+}
+
+// Snapshots caches parsed dependency graphs per commit (optional capability
+// of a Store, detected with a type assertion). fingerprint identifies the
+// parser build and scan settings; data is opaque to the store.
+type Snapshots interface {
+	// GetSnapshot returns ErrNotFound when there is none; a hit refreshes its use time.
+	GetSnapshot(ctx context.Context, repo, sha, fingerprint string, at time.Time) ([]byte, error)
+	// PutSnapshot stores data and prunes snapshots unused since before pruneBefore.
+	PutSnapshot(ctx context.Context, repo, sha, fingerprint string, data []byte, at, pruneBefore time.Time) error
 }
 
 // Factory builds a Store from its config block (dsn...).

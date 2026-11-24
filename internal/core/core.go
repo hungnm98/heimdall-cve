@@ -30,8 +30,11 @@ type ScanRequest struct {
 	Targets   []model.Target   // resolved by the caller (config, catalog, or an ad-hoc repo target)
 	TargetIDs map[string]int64 // Target.String() → catalog id, to cache repo listings; may be nil
 	Repo      string           // optional: only this "owner/name" within Targets
-	Force     bool             // rescan even if HEAD and source data are unchanged
-	Trigger   model.JobTrigger
+	Force     bool             // re-read and re-parse manifests even for a commit parsed before
+	// OnlyChanged scans only repo branches whose commit moved since their
+	// last scan (polls); Scan returns ErrNoChanges when there are none.
+	OnlyChanged bool
+	Trigger     model.JobTrigger
 }
 
 // Scanner runs one scan and records it as a ScanRun. A repo or source

@@ -141,3 +141,29 @@ func TestEmptyPluginBlocksAndDefaultSources(t *testing.T) {
 		t.Fatalf("an explicit sources section replaces the defaults, got %v", c.Sources)
 	}
 }
+
+func TestTargetBranchesScheduleAndPoll(t *testing.T) {
+	const base = `
+auth_profiles: { pat: { type: token, token_env: GH } }
+targets:
+  - { kind: org, name: acme, auth: pat, branches: ["release/*", develop], max_branches: 5, schedule: "@daily", poll: "@every 1h" }
+`
+	c, err := Load(write(t, "ok.yaml", base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mt := c.ModelTargets()[0]
+	if len(mt.Branches) != 2 || mt.MaxBranches != 5 || c.Targets[0].Schedule != "@daily" || c.Targets[0].Poll != "@every 1h" {
+		t.Fatalf("target = %+v / %+v", mt, c.Targets[0])
+	}
+	for name, bad := range map[string]string{
+		"poll":     `poll: "every hour"`,
+		"schedule": `schedule: "61 * * * *"`,
+		"glob":     `branches: ["release/["]`,
+	} {
+		cfg := strings.Replace(base, `branches: ["release/*", develop], max_branches: 5, schedule: "@daily", poll: "@every 1h"`, bad, 1)
+		if _, err := Load(write(t, name+".yaml", cfg)); err == nil {
+			t.Errorf("%s: invalid value accepted", name)
+		}
+	}
+}

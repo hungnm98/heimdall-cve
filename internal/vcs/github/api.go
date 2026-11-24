@@ -237,6 +237,25 @@ func (p *Provider) apiResolveRef(ctx context.Context, r model.Repo, ref string) 
 	return sha, nil
 }
 
+func (p *Provider) apiListBranches(ctx context.Context, r model.Repo) ([]string, error) {
+	var out []string
+	u := p.repoURL(r.Owner, r.Name, "branches") + "?per_page=100"
+	for u != "" {
+		var page []struct {
+			Name string `json:"name"`
+		}
+		next, err := p.getJSON(ctx, p.readToken, r.Owner, u, &page)
+		if err != nil {
+			return nil, fmt.Errorf("list branches of %s: %w", r.FullName(), err)
+		}
+		for _, b := range page {
+			out = append(out, b.Name)
+		}
+		u = next
+	}
+	return out, nil
+}
+
 // apiListFiles uses the recursive Git Trees API. truncated reports a tree too
 // large for one response.
 func (p *Provider) apiListFiles(ctx context.Context, r model.Repo, sha string) (files []string, truncated bool, err error) {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"log/slog"
+	"math"
 	"path"
 	"sort"
 	"strings"
@@ -46,6 +46,9 @@ type Pipeline struct {
 	Concurrency int      // repos scanned in parallel (default 4)
 	ReportDir   string   // when set, every reporter writes run-<id><ext> there
 	UIBaseURL   string   // optional, for links in notifications
+	// SnapshotSalt is folded into commit snapshot keys: parser options
+	// (private_modules, ecosystem settings) that change parse results.
+	SnapshotSalt string
 
 	Logger *slog.Logger
 	Now    func() time.Time
@@ -53,9 +56,12 @@ type Pipeline struct {
 
 var _ Scanner = (*Pipeline)(nil)
 
-// repoResult is what scanning one repo produced before sources are queried.
+// repoResult is what scanning one branch of a repo produced before sources
+// are queried.
 type repoResult struct {
-	repo     model.Repo
+	repo     model.Repo // Ref = the branch scanned
+	branch   string     // "" = the repo's primary branch (target branch or default); else an extra branch
+	target   model.Target
 	prov     vcs.Provider // the target's provider: reads code with its credentials
 	targetID int64
 	sha      string
@@ -63,7 +69,15 @@ type repoResult struct {
 	runtimes []model.Runtime
 	errs     []string
 	failed   bool
+	missing  bool // an extra branch that does not exist: skipped, not a failure
+	cached   bool // graphs came from the commit snapshot
 }
+
+func (r *repoResult) scope() string { return model.ScopeKey(r.repo.FullName(), r.branch) }
+
+// ErrNoChanges is returned by Scan for a ScanRequest with OnlyChanged when no
+// repo branch moved since its last scan: no run is recorded.
+var ErrNoChanges = errors.New("no repository changed since the last scan")
 
 // Scan runs one scan. Failures of single repos or sources make the run
 // partial; only setup errors (store) fail it.
@@ -75,10 +89,24 @@ func (p *Pipeline) Scan(ctx context.Context, req ScanRequest, prog Progress) (*m
 	for _, t := range req.Targets {
 		run.Targets = append(run.Targets, t.String())
 	}
+	// Repos, branches and their commits are resolved before the run starts,
+	// so a poll that finds nothing new records nothing.
+	repos, branchSets := p.plan(ctx, req, prog, run)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if req.OnlyChanged {
+		repos = p.changedOnly(ctx, repos, prog)
+		branchSets = nil // removed branches are detected by full scans only
+		if len(repos) == 0 && len(run.ReposFailed) == 0 {
+			prog.Event("info", "", "no repository branch moved since its last scan")
+			return nil, ErrNoChanges
+		}
+	}
 	if err := p.Store.StartRun(ctx, run); err != nil {
 		return nil, fmt.Errorf("start run: %w", err)
 	}
-	err := p.scan(ctx, req, prog, run)
+	err := p.scan(ctx, req, prog, run, repos, branchSets)
 	run.FinishedAt = p.now()
 	switch {
 	case err != nil:
@@ -99,15 +127,11 @@ func (p *Pipeline) Scan(ctx context.Context, req ScanRequest, prog Progress) (*m
 	return run, err
 }
 
-func (p *Pipeline) scan(ctx context.Context, req ScanRequest, prog Progress, run *model.ScanRun) error {
+func (p *Pipeline) scan(ctx context.Context, req ScanRequest, prog Progress, run *model.ScanRun, repos []*repoResult, branchSets map[string][]string) error {
 	if len(p.VulnSources) == 0 {
 		prog.Event("warn", "", "no vulnerability source is enabled: dependencies will not be checked (enable sources.osv)")
 	}
-	repos := p.resolve(ctx, req, prog, run)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	results := p.fetchAll(ctx, repos, prog)
+	results := p.fetchAll(ctx, repos, req.Force, prog)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -130,17 +154,23 @@ func (p *Pipeline) scan(ctx context.Context, req ScanRequest, prog Progress, run
 	reports := make([]model.RepoReport, 0, len(results))
 	for _, r := range results {
 		if r.failed {
-			run.ReposFailed = append(run.ReposFailed, r.repo.FullName())
-			reports = append(reports, model.RepoReport{Repo: r.repo, HeadSHA: r.sha, Errors: r.errs})
+			run.ReposFailed = append(run.ReposFailed, r.scope())
+			reports = append(reports, model.RepoReport{Repo: r.repo, Branch: r.branch, HeadSHA: r.sha, Errors: r.errs})
 			continue
 		}
-		run.ReposScanned = append(run.ReposScanned, r.repo.FullName())
+		run.ReposScanned = append(run.ReposScanned, r.scope())
 		loc := dedup.Location{Provider: r.repo.Provider, Repo: r.repo.FullName()}
 		fs := dedup.Findings(loc, r.graphs, advisories, cmps)
 		fs = append(fs, runtimeFindings(r, statuses)...)
+		if r.branch != "" {
+			for i := range fs {
+				fs[i].Branch = r.branch
+				fs[i].ComputeID()
+			}
+		}
 		fs = p.applyPolicy(fs)
 		all = append(all, fs...)
-		reports = append(reports, model.RepoReport{Repo: r.repo, HeadSHA: r.sha, Runtimes: repoStatuses(r, statuses), Errors: r.errs})
+		reports = append(reports, model.RepoReport{Repo: r.repo, Branch: r.branch, HeadSHA: r.sha, Runtimes: repoStatuses(r, statuses), Errors: r.errs})
 	}
 
 	ptrs := make([]*model.Finding, len(all))
@@ -169,16 +199,24 @@ func (p *Pipeline) scan(ctx context.Context, req ScanRequest, prog Progress, run
 		return fmt.Errorf("record findings: %w", err)
 	}
 	p.markScanned(ctx, results, now)
+	for repo, keep := range branchSets {
+		gone, err := p.Store.MarkBranchesRemoved(ctx, repo, keep)
+		if err != nil {
+			prog.Event("warn", repo, fmt.Sprintf("close findings of removed branches: %v", err))
+		} else if len(gone) > 0 {
+			prog.Event("info", repo, fmt.Sprintf("%d findings closed: their branch is gone or no longer scanned", len(gone)))
+		}
+	}
 
 	run.Stats = stats(all, diff, len(run.ReposScanned))
 	// Reports show what is open now, with lifecycle fields from the store
 	// (FirstSeen, suppressed findings left out).
 	byRepo := map[string][]model.Finding{}
 	for _, f := range append(append([]model.Finding{}, diff.New...), diff.StillOpen...) {
-		byRepo[f.Repo] = append(byRepo[f.Repo], f)
+		byRepo[f.ScopeKey()] = append(byRepo[f.ScopeKey()], f)
 	}
 	for i := range reports {
-		fs := byRepo[reports[i].Repo.FullName()]
+		fs := byRepo[model.ScopeKey(reports[i].Repo.FullName(), reports[i].Branch)]
 		reports[i].Findings = fs
 		reports[i].UpgradePlan = recommend.Plan(fs, cmps)
 	}
@@ -190,8 +228,8 @@ func (p *Pipeline) scan(ctx context.Context, req ScanRequest, prog Progress, run
 
 // ---- resolve & fetch ----
 
-func (p *Pipeline) resolve(ctx context.Context, req ScanRequest, prog Progress, run *model.ScanRun) []repoResult {
-	var out []repoResult
+func (p *Pipeline) resolve(ctx context.Context, req ScanRequest, prog Progress, run *model.ScanRun) []*repoResult {
+	var out []*repoResult
 	seen := map[string]bool{}
 	for _, t := range req.Targets {
 		prov, err := p.ProviderFor(ctx, t)
@@ -221,7 +259,7 @@ func (p *Pipeline) resolve(ctx context.Context, req ScanRequest, prog Progress, 
 				continue
 			}
 			seen[r.FullName()] = true
-			out = append(out, repoResult{repo: r, prov: prov, targetID: tid})
+			out = append(out, &repoResult{repo: r, target: t, prov: prov, targetID: tid})
 		}
 		if req.Repo != "" && len(out) == 0 {
 			prog.Event("warn", req.Repo, fmt.Sprintf("%s is not part of %s", req.Repo, t))
@@ -232,46 +270,54 @@ func (p *Pipeline) resolve(ctx context.Context, req ScanRequest, prog Progress, 
 	return out
 }
 
-func (p *Pipeline) fetchAll(ctx context.Context, repos []repoResult, prog Progress) []*repoResult {
-	out := make([]*repoResult, len(repos))
+// parallel runs fn for every result, Concurrency at a time.
+func (p *Pipeline) parallel(results []*repoResult, fn func(*repoResult)) {
 	n := p.Concurrency
 	if n <= 0 {
 		n = 4
 	}
 	sem := make(chan struct{}, n)
 	var wg sync.WaitGroup
-	for i := range repos {
-		r := repos[i]
-		out[i] = &r
+	for _, r := range results {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(r *repoResult) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			p.fetchRepo(ctx, r, prog)
-		}(out[i])
+			fn(r)
+		}(r)
 	}
 	wg.Wait()
-	return out
 }
 
-func (p *Pipeline) fetchRepo(ctx context.Context, r *repoResult, prog Progress) {
-	name := r.repo.FullName()
-	fail := func(format string, a ...any) {
-		msg := fmt.Sprintf(format, a...)
-		r.errs, r.failed = append(r.errs, msg), true
-		prog.Event("error", name, msg)
-	}
-	prov := r.prov
-	sha, err := prov.ResolveRef(ctx, r.repo, r.repo.Ref)
-	if err != nil {
-		fail("resolve %s: %v", r.repo.Ref, err)
+func (p *Pipeline) fetchAll(ctx context.Context, results []*repoResult, force bool, prog Progress) []*repoResult {
+	p.parallel(results, func(r *repoResult) {
+		if !r.failed {
+			p.fetchRepo(ctx, r, force, prog)
+		}
+	})
+	return results
+}
+
+func (r *repoResult) fail(prog Progress, format string, a ...any) {
+	msg := fmt.Sprintf(format, a...)
+	r.errs, r.failed = append(r.errs, msg), true
+	prog.Event("error", r.scope(), msg)
+}
+
+// fetchRepo reads and parses the manifests of r at r.sha, or takes them from
+// the commit snapshot when that commit was parsed before (unless force).
+func (p *Pipeline) fetchRepo(ctx context.Context, r *repoResult, force bool, prog Progress) {
+	name := r.scope()
+	prov, sha := r.prov, r.sha
+	if !force && p.loadSnapshot(ctx, r) {
+		prog.Event("info", name, fmt.Sprintf("%s@%.7s: unchanged commit, %d manifests from the snapshot", r.repo.Ref, sha, len(r.graphs)))
 		return
 	}
-	r.sha = sha
+	transient := false
 	paths, err := prov.ListFiles(ctx, r.repo, sha)
 	if err != nil {
-		fail("list files: %v", err)
+		r.fail(prog, "list files: %v", err)
 		return
 	}
 	wanted := map[string]bool{}
@@ -295,6 +341,7 @@ func (p *Pipeline) fetchRepo(ctx context.Context, r *repoResult, prog Progress) 
 		b, err := prov.ReadFile(ctx, r.repo, sha, f)
 		if err != nil {
 			r.errs = append(r.errs, fmt.Sprintf("read %s: %v", f, err))
+			transient = true
 			continue
 		}
 		files.Files[f] = b
@@ -332,6 +379,9 @@ func (p *Pipeline) fetchRepo(ctx context.Context, r *repoResult, prog Progress) 
 	}
 	prog.Event("info", name, fmt.Sprintf("%s@%.7s: %d manifests, %d dependencies, %d runtime declarations",
 		r.repo.Ref, sha, len(r.graphs), deps, len(r.runtimes)))
+	if !transient { // a failed read must not be cached as "no such manifest"
+		p.saveSnapshot(ctx, r)
+	}
 }
 
 func (p *Pipeline) skipped(f string) bool {
@@ -452,7 +502,7 @@ func (p *Pipeline) saveInventory(ctx context.Context, results []*repoResult, pro
 	}
 	now := p.now()
 	for _, r := range results {
-		if r.failed {
+		if r.failed || r.branch != "" { // the inventory describes primary branches
 			continue
 		}
 		var items []model.InventoryItem
@@ -699,7 +749,7 @@ func (p *Pipeline) markScanned(ctx context.Context, results []*repoResult, at ti
 		if err := p.Store.PutRepoState(ctx, model.RepoState{Repo: name, Ref: r.repo.Ref, HeadSHA: r.sha, ScannedAt: at}); err != nil {
 			p.log().Warn("save repo state", "repo", name, "err", err)
 		}
-		if p.Catalog != nil && r.targetID != 0 {
+		if p.Catalog != nil && r.targetID != 0 && r.branch == "" {
 			if err := p.Catalog.MarkRepoScanned(ctx, name, r.sha, at); err != nil && !errors.Is(err, store.ErrNotFound) {
 				p.log().Warn("mark repo scanned", "repo", name, "err", err)
 			}

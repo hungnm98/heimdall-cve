@@ -24,10 +24,36 @@ type Target struct {
 	Owner    string // org or user login (also filled for kind=repo)
 	Name     string // repo name, kind=repo only
 	Branch   string // branch to scan; empty = default branch
-	Auth     string // auth profile used to read code
-	ListAuth string // auth profile used to list repos (needed when Auth is ssh)
-	Repos    []string
-	Filter   RepoFilter
+	// Branches are extra branches scanned besides Branch (or the default
+	// branch): names or globs ("release/*"). Missing ones are skipped.
+	Branches []string
+	// MaxBranches caps the extra branches per repo (0 = DefaultMaxBranches).
+	MaxBranches int
+	Auth        string // auth profile used to read code
+	ListAuth    string // auth profile used to list repos (needed when Auth is ssh)
+	Repos       []string
+	Filter      RepoFilter
+}
+
+// DefaultMaxBranches caps the extra branches scanned per repo.
+const DefaultMaxBranches = 10
+
+// BranchCap returns the effective cap on extra branches.
+func (t Target) BranchCap() int {
+	if t.MaxBranches > 0 {
+		return t.MaxBranches
+	}
+	return DefaultMaxBranches
+}
+
+// ScopeKey names what one scan of a repo covers: "owner/name" for the
+// default branch, "owner/name@branch" for an extra branch. Runs list scanned
+// scopes; findings out of a scanned scope are not touched.
+func ScopeKey(repo, branch string) string {
+	if branch == "" {
+		return repo
+	}
+	return repo + "@" + branch
 }
 
 // String is a human label such as "org:remitano" or "repo:remitano/foo".

@@ -12,7 +12,8 @@ type Report struct {
 
 // RepoReport is everything known about one repo in a run.
 type RepoReport struct {
-	Repo        Repo
+	Repo        Repo   // Repo.Ref is the branch scanned
+	Branch      string // "" = primary branch; else an extra branch
 	HeadSHA     string
 	Findings    []Finding
 	Runtimes    []RuntimeStatus

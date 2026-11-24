@@ -28,14 +28,23 @@ type Store struct {
 	runs       map[int64]model.ScanRun
 	findings   map[string]model.Finding
 	snapshots  map[int64]map[string]model.Finding // findings recorded per run (non-suppressed)
-	scanned    map[int64]map[string]bool          // repos scanned per run
+	scanned    map[int64]map[string]bool          // scopes scanned per run
 	repoStates map[string]model.RepoState
 	notified   map[string]time.Time
-	cat        catalog // store.Catalog state (catalog.go)
-	intel      intel   // store.Intel state (intel.go)
+	commits    map[string]commitSnapshot // store.Snapshots: repo\x00sha\x00fingerprint
+	cat        catalog                   // store.Catalog state (catalog.go)
+	intel      intel                     // store.Intel state (intel.go)
 }
 
-var _ store.Store = (*Store)(nil)
+var (
+	_ store.Store     = (*Store)(nil)
+	_ store.Snapshots = (*Store)(nil)
+)
+
+type commitSnapshot struct {
+	data []byte
+	used time.Time
+}
 
 // New returns an empty store.
 func New() *Store {
@@ -46,6 +55,7 @@ func New() *Store {
 		scanned:    map[int64]map[string]bool{},
 		repoStates: map[string]model.RepoState{},
 		notified:   map[string]time.Time{},
+		commits:    map[string]commitSnapshot{},
 	}
 }
 
@@ -159,7 +169,7 @@ func (s *Store) RecordFindings(_ context.Context, runID int64, scanned []string,
 			diff.New = append(diff.New, f)
 		case prev.Status == model.StatusSuppressed:
 			f.FirstSeen, f.Status = prev.FirstSeen, model.StatusSuppressed
-		case prev.Status == model.StatusFixed:
+		case prev.Status == model.StatusFixed, prev.Status == model.StatusRemoved:
 			f.FirstSeen, f.Status = prev.FirstSeen, model.StatusOpen
 			diff.New = append(diff.New, f)
 		default:
@@ -173,7 +183,7 @@ func (s *Store) RecordFindings(_ context.Context, runID int64, scanned []string,
 	}
 	for _, id := range sortedIDs(s.findings) {
 		f := s.findings[id]
-		if f.Status != model.StatusOpen || !scope[f.Repo] {
+		if f.Status != model.StatusOpen || !scope[f.ScopeKey()] {
 			continue
 		}
 		if _, ok := incoming[id]; ok {
@@ -217,6 +227,8 @@ func match(f model.Finding, flt store.FindingFilter) bool {
 		flt.Status != "" && f.Status != flt.Status,
 		flt.MinSeverity != "" && !f.Severity.AtLeast(flt.MinSeverity),
 		flt.InKEV && !f.InKEV,
+		flt.Branch != "" && f.Branch != flt.Branch,
+		flt.DefaultBranchOnly && f.Branch != "",
 		!flt.NewSince.IsZero() && f.FirstSeen.Before(flt.NewSince),
 		flt.Query != "" && !matchQuery(f, flt.Query):
 		return false
@@ -276,8 +288,9 @@ func (s *Store) DiffRuns(_ context.Context, from, to int64) (*model.Diff, error)
 		}
 	}
 	for _, id := range sortedIDs(a) {
-		if _, ok := b[id]; !ok && s.scanned[to][a[id].Repo] {
-			d.Fixed = append(d.Fixed, a[id])
+		f := a[id]
+		if _, ok := b[id]; !ok && s.scanned[to][f.ScopeKey()] {
+			d.Fixed = append(d.Fixed, f)
 		}
 	}
 	return d, nil
@@ -297,6 +310,65 @@ func (s *Store) PutRepoState(_ context.Context, st model.RepoState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.repoStates[st.Repo+"\x00"+st.Ref] = st
+	return nil
+}
+
+func (s *Store) ListRepoStates(_ context.Context, repo string) ([]model.RepoState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []model.RepoState
+	for _, st := range s.repoStates {
+		if st.Repo == repo {
+			out = append(out, st)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
+	return out, nil
+}
+
+func (s *Store) MarkBranchesRemoved(_ context.Context, repo string, keep []string) ([]model.Finding, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := map[string]bool{}
+	for _, b := range keep {
+		kept[b] = true
+	}
+	var out []model.Finding
+	for _, id := range sortedIDs(s.findings) {
+		f := s.findings[id]
+		if f.Repo != repo || f.Branch == "" || kept[f.Branch] || f.Status != model.StatusOpen {
+			continue
+		}
+		f.Status = model.StatusRemoved
+		s.findings[id] = f
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+func commitKey(repo, sha, fp string) string { return repo + "\x00" + sha + "\x00" + fp }
+
+func (s *Store) GetSnapshot(_ context.Context, repo, sha, fp string, at time.Time) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.commits[commitKey(repo, sha, fp)]
+	if !ok {
+		return nil, fmt.Errorf("snapshot %s@%s: %w", repo, sha, store.ErrNotFound)
+	}
+	c.used = at
+	s.commits[commitKey(repo, sha, fp)] = c
+	return append([]byte(nil), c.data...), nil
+}
+
+func (s *Store) PutSnapshot(_ context.Context, repo, sha, fp string, data []byte, at, pruneBefore time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, c := range s.commits {
+		if c.used.Before(pruneBefore) {
+			delete(s.commits, k)
+		}
+	}
+	s.commits[commitKey(repo, sha, fp)] = commitSnapshot{data: append([]byte(nil), data...), used: at}
 	return nil
 }
 

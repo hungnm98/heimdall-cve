@@ -262,7 +262,7 @@ func scanRun(row pgx.Row) (*model.ScanRun, error) {
 
 var findingCols = []string{"id", "kind", "provider", "repo", "manifest_path", "ecosystem", "package_name",
 	"package_version", "purl", "advisory_id", "severity", "severity_rank", "in_kev", "status", "first_seen",
-	"last_seen", "data"}
+	"last_seen", "data", "branch"}
 
 // selectFinding reads a finding; columns override the document.
 const selectFinding = "f.data, f.status, f.first_seen, f.last_seen"
@@ -330,7 +330,7 @@ func (s *Store) RecordFindings(ctx context.Context, runID int64, scanned []strin
 				diff.New = append(diff.New, f)
 			case p.status == model.StatusSuppressed:
 				f.FirstSeen, f.Status = p.firstSeen, model.StatusSuppressed
-			case p.status == model.StatusFixed:
+			case p.status == model.StatusFixed, p.status == model.StatusRemoved:
 				f.FirstSeen, f.Status = p.firstSeen, model.StatusOpen
 				diff.New = append(diff.New, f)
 			default:
@@ -359,9 +359,9 @@ func (s *Store) RecordFindings(ctx context.Context, runID int64, scanned []strin
 		}
 
 		fixed, err := queryFindings(ctx, tx, `UPDATE findings f SET status = 'fixed'
-			WHERE f.repo = ANY($1) AND f.status = 'open'
+			WHERE f.repo = ANY($2) AND `+scopeKeySQL+` = ANY($1) AND f.status = 'open'
 			  AND NOT EXISTS (SELECT 1 FROM tmp_findings t WHERE t.id = f.id)
-			RETURNING `+selectFinding, nonNil(scanned))
+			RETURNING `+selectFinding, nonNil(scanned), scopeRepos(scanned))
 		if err != nil {
 			return fmt.Errorf("close fixed findings: %w", err)
 		}
@@ -381,6 +381,29 @@ func (s *Store) RecordFindings(ctx context.Context, runID int64, scanned []strin
 	return diff, nil
 }
 
+// scopeKeySQL is model.ScopeKey of findings row f (run_repos.repo holds scope keys).
+const scopeKeySQL = "(CASE WHEN f.branch = '' THEN f.repo ELSE f.repo || '@' || f.branch END)"
+
+// scopeRepos returns the repos of scope keys (lets the repo index serve the query).
+func scopeRepos(scopes []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, sc := range scopes {
+		repo, _, _ := strings.Cut(sc, "@")
+		if !seen[repo] {
+			seen[repo] = true
+			out = append(out, repo)
+		}
+	}
+	return out
+}
+
+func (s *Store) MarkBranchesRemoved(ctx context.Context, repo string, keep []string) ([]model.Finding, error) {
+	return queryFindings(ctx, s.pool, `UPDATE findings f SET status = 'removed'
+		WHERE f.repo = $1 AND f.branch <> '' AND NOT (f.branch = ANY($2)) AND f.status = 'open'
+		RETURNING `+selectFinding, repo, nonNil(keep))
+}
+
 func findingRow(f model.Finding) ([]any, error) {
 	data, err := json.Marshal(f)
 	if err != nil {
@@ -388,7 +411,7 @@ func findingRow(f model.Finding) ([]any, error) {
 	}
 	return []any{f.ID, string(f.Kind), f.Provider, f.Repo, f.ManifestPath, string(f.Package.Ecosystem), f.Package.Name,
 		f.Package.Version, f.Package.PURL, f.AdvisoryID, string(f.Severity), int16(f.Severity.Rank()), f.InKEV,
-		string(f.Status), f.FirstSeen, f.LastSeen, data}, nil
+		string(f.Status), f.FirstSeen, f.LastSeen, data, f.Branch}, nil
 }
 
 type querier interface {
@@ -448,6 +471,12 @@ func (s *Store) ListFindings(ctx context.Context, flt store.FindingFilter) ([]mo
 	}
 	if flt.InKEV {
 		where = append(where, "f.in_kev")
+	}
+	if flt.Branch != "" {
+		add("f.branch = $%d", flt.Branch)
+	}
+	if flt.DefaultBranchOnly {
+		where = append(where, "f.branch = ''")
 	}
 	if !flt.NewSince.IsZero() {
 		add("f.first_seen >= $%d", flt.NewSince)
@@ -525,7 +554,7 @@ func (s *Store) DiffRuns(ctx context.Context, from, to int64) (*model.Diff, erro
 	}
 	d.Fixed, err = queryFindings(ctx, s.pool, "SELECT "+selectFinding+` FROM run_findings r JOIN findings f ON f.id = r.finding_id
 		WHERE r.run_id = $1 AND NOT EXISTS (`+fmt.Sprintf(inRun, 2)+`)
-		  AND f.repo IN (SELECT repo FROM run_repos WHERE run_id = $2) ORDER BY f.id`, from, to)
+		  AND `+scopeKeySQL+` IN (SELECT repo FROM run_repos WHERE run_id = $2) ORDER BY f.id`, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -551,6 +580,46 @@ func (s *Store) PutRepoState(ctx context.Context, st model.RepoState) error {
 	_, err := s.pool.Exec(ctx, `INSERT INTO repo_states (repo, ref, head_sha, scanned_at) VALUES ($1, $2, $3, $4)
 		ON CONFLICT (repo, ref) DO UPDATE SET head_sha = EXCLUDED.head_sha, scanned_at = EXCLUDED.scanned_at`,
 		st.Repo, st.Ref, st.HeadSHA, st.ScannedAt)
+	return err
+}
+
+func (s *Store) ListRepoStates(ctx context.Context, repo string) ([]model.RepoState, error) {
+	rows, err := s.pool.Query(ctx, "SELECT ref, head_sha, scanned_at FROM repo_states WHERE repo = $1 ORDER BY ref", repo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.RepoState
+	for rows.Next() {
+		st := model.RepoState{Repo: repo}
+		if err := rows.Scan(&st.Ref, &st.HeadSHA, &st.ScannedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
+var _ store.Snapshots = (*Store)(nil)
+
+func (s *Store) GetSnapshot(ctx context.Context, repo, sha, fp string, at time.Time) ([]byte, error) {
+	var data []byte
+	err := s.pool.QueryRow(ctx, `UPDATE repo_snapshots SET used_at = $4
+		WHERE repo = $1 AND sha = $2 AND fingerprint = $3 RETURNING data`, repo, sha, fp, at).Scan(&data)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("snapshot %s@%s: %w", repo, sha, store.ErrNotFound)
+	}
+	return data, err
+}
+
+func (s *Store) PutSnapshot(ctx context.Context, repo, sha, fp string, data []byte, at, pruneBefore time.Time) error {
+	if _, err := s.pool.Exec(ctx, "DELETE FROM repo_snapshots WHERE used_at < $1", pruneBefore); err != nil {
+		return err
+	}
+	_, err := s.pool.Exec(ctx, `INSERT INTO repo_snapshots (repo, sha, fingerprint, data, created_at, used_at)
+		VALUES ($1, $2, $3, $4, $5, $5)
+		ON CONFLICT (repo, sha, fingerprint) DO UPDATE SET data = EXCLUDED.data, used_at = EXCLUDED.used_at`,
+		repo, sha, fp, data, at)
 	return err
 }
 

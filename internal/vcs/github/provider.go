@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/hungnm98/heimdall-cve/internal/auth"
@@ -129,6 +130,24 @@ func (p *Provider) ResolveRef(ctx context.Context, r model.Repo, ref string) (st
 		return p.apiResolveRef(ctx, r, ref)
 	}
 	return p.gitResolveRef(ctx, r, ref)
+}
+
+var _ vcs.BranchLister = (*Provider)(nil)
+
+// ListBranches implements vcs.BranchLister (sorted names).
+func (p *Provider) ListBranches(ctx context.Context, r model.Repo) ([]string, error) {
+	if err := p.checkRepo(r); err != nil {
+		return nil, err
+	}
+	var out []string
+	var err error
+	if p.readToken != nil {
+		out, err = p.apiListBranches(ctx, r)
+	} else {
+		out, err = p.gitListBranches(ctx, r)
+	}
+	sort.Strings(out)
+	return out, err
 }
 
 // ListFiles implements vcs.Provider.

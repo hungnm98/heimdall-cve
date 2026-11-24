@@ -586,11 +586,11 @@ func TestDashboardAndRepos(t *testing.T) {
 	if len(page.Items) != 1 || page.NextCursor != "" {
 		t.Fatal(page)
 	}
-	d, err := e.svc.Repos.Get(ctx, "acme/api")
+	d, err := e.svc.Repos.Get(ctx, "acme/api", "")
 	if err != nil || len(d.Findings) != 7 || len(d.Runtimes) != 1 || len(d.UpgradePlan) != 1 || len(d.UpgradePlan[0].Advisories) != 6 || d.UpgradePlan[0].Severity != model.SeverityCritical {
 		t.Fatalf("detail %+v %v", d, err)
 	}
-	if _, err := e.svc.Repos.Get(ctx, "acme/none"); !errors.Is(err, service.ErrNotFound) {
+	if _, err := e.svc.Repos.Get(ctx, "acme/none", ""); !errors.Is(err, service.ErrNotFound) {
 		t.Fatal(err)
 	}
 }
@@ -697,7 +697,7 @@ func TestReposCarryOpenCounts(t *testing.T) {
 	if c := page.Items[0].OpenBySeverity; c[model.SeverityHigh] != 2 || c[model.SeverityLow] != 1 {
 		t.Fatalf("open counts = %v", c)
 	}
-	d, err := e.svc.Repos.Get(ctx, "acme/api")
+	d, err := e.svc.Repos.Get(ctx, "acme/api", "")
 	if err != nil || d.Record.OpenBySeverity[model.SeverityHigh] != 2 {
 		t.Fatalf("detail counts: %v %+v", err, d)
 	}

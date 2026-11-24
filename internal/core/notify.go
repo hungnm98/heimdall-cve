@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/hungnm98/heimdall-cve/internal/model"
@@ -38,17 +39,24 @@ func (p *Pipeline) notify(ctx context.Context, rep *model.Report, all []model.Fi
 	}
 	events = append(events, keyed{fmt.Sprintf("scan.summary:%d", run.ID), summary})
 
-	for _, f := range rep.Diff.New {
+	// One message per vulnerability across branches: the same advisory on
+	// main and release/* is one event naming the branches, keyed on the
+	// primary-branch identity so it is never announced twice.
+	for _, g := range groupAcrossBranches(rep.Diff.New) {
+		f, where := g[0], branchNote(g)
 		switch {
 		case f.Kind == model.KindRuntime:
-			events = append(events, keyed{"runtime.eol_soon:" + f.ID, p.single(model.EventRuntimeEOLSoon, f, f.Summary)})
+			events = append(events, keyed{"runtime.eol_soon:" + baseID(f), p.group(model.EventRuntimeEOLSoon, g, f.Summary+where)})
 		case f.Severity == model.SeverityCritical || f.InKEV || f.Malicious:
-			title := fmt.Sprintf("New %s finding in %s: %s %s", label(f), f.Repo, f.Package.Name, f.AdvisoryID)
-			events = append(events, keyed{"finding.new:" + f.ID, p.single(model.EventFindingNew, f, title)})
+			title := fmt.Sprintf("New %s finding in %s: %s %s%s", label(f), f.Repo, f.Package.Name, f.AdvisoryID, where)
+			events = append(events, keyed{"finding.new:" + baseID(f), p.group(model.EventFindingNew, g, title)})
 		}
 	}
 	now := p.now()
 	for _, f := range open {
+		if f.Branch != "" { // SLA tracks the primary branch; extra branches would repeat it
+			continue
+		}
 		days, ok := p.Policy.SLADays[string(f.Severity)]
 		if !ok || days <= 0 || f.FirstSeen.IsZero() || now.Sub(f.FirstSeen) <= time.Duration(days)*24*time.Hour {
 			continue
@@ -90,6 +98,63 @@ func (p *Pipeline) single(t model.EventType, f model.Finding, title string) mode
 	if p.UIBaseURL != "" {
 		ev.Links = []string{fmt.Sprintf("%s/#/findings/%s", p.UIBaseURL, f.ID)}
 	}
+	return ev
+}
+
+// baseID is the finding's ID on the primary branch (its ID when it is there).
+func baseID(f model.Finding) string {
+	if f.Branch == "" {
+		return f.ID
+	}
+	f.Branch = ""
+	return f.ComputeID()
+}
+
+// groupAcrossBranches groups findings that are the same problem on several
+// branches, primary branch first, in input order.
+func groupAcrossBranches(fs []model.Finding) [][]model.Finding {
+	idx := map[string]int{}
+	var out [][]model.Finding
+	for _, f := range fs {
+		k := baseID(f)
+		i, ok := idx[k]
+		if !ok {
+			idx[k] = len(out)
+			out = append(out, []model.Finding{f})
+			continue
+		}
+		if f.Branch == "" {
+			out[i] = append([]model.Finding{f}, out[i]...)
+		} else {
+			out[i] = append(out[i], f)
+		}
+	}
+	return out
+}
+
+// branchNote names the extra branches of a group: "" for the primary only.
+func branchNote(g []model.Finding) string {
+	var bs []string
+	primary := false
+	for _, f := range g {
+		if f.Branch == "" {
+			primary = true
+		} else {
+			bs = append(bs, f.Branch)
+		}
+	}
+	switch {
+	case len(bs) == 0:
+		return ""
+	case primary:
+		return " (also on " + strings.Join(bs, ", ") + ")"
+	}
+	return " (on " + strings.Join(bs, ", ") + ")"
+}
+
+func (p *Pipeline) group(t model.EventType, g []model.Finding, title string) model.NotificationEvent {
+	ev := p.single(t, g[0], title)
+	ev.Findings = g
 	return ev
 }
 

@@ -214,6 +214,26 @@ func (p *Provider) gitDefaultBranch(ctx context.Context, r model.Repo) (string, 
 	return "", fmt.Errorf("github: default branch of %s (empty repository?): %w", r.FullName(), vcs.ErrNotFound)
 }
 
+func (p *Provider) gitListBranches(ctx context.Context, r model.Repo) ([]string, error) {
+	rm, err := p.remoteFor(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	out, err := p.run(ctx, "", rm, "ls-remote", "--heads", rm.url)
+	if err != nil {
+		return nil, fmt.Errorf("github: list branches of %s: %w", r.FullName(), err)
+	}
+	var names []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if _, ref, ok := strings.Cut(strings.TrimSpace(line), "\t"); ok {
+			if name, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
+				names = append(names, name)
+			}
+		}
+	}
+	return names, nil
+}
+
 func (p *Provider) gitResolveRef(ctx context.Context, r model.Repo, ref string) (string, error) {
 	dir, rm, unlock, err := p.openMirror(ctx, r)
 	if err != nil {

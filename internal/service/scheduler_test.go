@@ -280,3 +280,24 @@ func TestSchedulerRun(t *testing.T) {
 		t.Fatal("Run without catalog/jobs must fail")
 	}
 }
+
+func TestSchedulerTriggersPolls(t *testing.T) {
+	e := newSchedEnv(t)
+	ctx := context.Background()
+	tg := e.target(t, "acme", "", nil) // no full scans, only polls
+	tg.Poll, tg.NextPollAt = "@every 1h", ptr(e.now.Add(-time.Minute))
+	if err := e.cat.SaveTarget(ctx, tg); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.tick(ctx, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	jl, _ := e.cat.ListJobs(ctx, store.JobFilter{})
+	if len(jl) != 1 || jl[0].Trigger != model.TriggerPoll {
+		t.Fatalf("jobs = %+v, want one poll job", jl)
+	}
+	got, _ := e.cat.GetTarget(ctx, tg.ID)
+	if got.NextPollAt == nil || !got.NextPollAt.Equal(e.now.Add(time.Hour)) || got.NextRunAt != nil {
+		t.Fatalf("next poll = %v, next run = %v; want now+1h and none", got.NextPollAt, got.NextRunAt)
+	}
+}

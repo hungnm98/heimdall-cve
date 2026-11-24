@@ -25,6 +25,9 @@ const (
 	StatusOpen       FindingStatus = "open"
 	StatusFixed      FindingStatus = "fixed"
 	StatusSuppressed FindingStatus = "suppressed"
+	// StatusRemoved: the branch it was found on is gone or no longer
+	// scanned. Not a fix: the code was never changed.
+	StatusRemoved FindingStatus = "removed"
 )
 
 // BumpType is the size of the recommended upgrade.
@@ -45,6 +48,7 @@ type Finding struct {
 	Kind         FindingKind
 	Provider     string
 	Repo         string // owner/name
+	Branch       string // "" = the repo's default branch; else an extra scanned branch
 	ManifestPath string
 	Package      Package
 	Direct       bool
@@ -85,12 +89,19 @@ func FindingID(provider, repo, manifestPath, pkgKey, advisoryID string) string {
 	return hex.EncodeToString(h[:12])
 }
 
+// ScopeKey is ScopeKey(f.Repo, f.Branch).
+func (f *Finding) ScopeKey() string { return ScopeKey(f.Repo, f.Branch) }
+
 // ComputeID sets f.ID from its identity fields and returns it.
 func (f *Finding) ComputeID() string {
 	key := f.Package.Key()
 	if f.Kind == KindRuntime && f.Runtime != nil {
 		key = "runtime:" + f.Runtime.Runtime.Name
 	}
-	f.ID = FindingID(f.Provider, f.Repo, f.ManifestPath, key, f.AdvisoryID)
+	repo := f.Repo
+	if f.Branch != "" { // default-branch IDs predate multi-branch scans: keep them
+		repo += "@" + f.Branch
+	}
+	f.ID = FindingID(f.Provider, repo, f.ManifestPath, key, f.AdvisoryID)
 	return f.ID
 }

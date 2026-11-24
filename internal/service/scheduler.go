@@ -115,7 +115,7 @@ func (s *Scheduler) tick(ctx context.Context, interval time.Duration) error {
 		defer release()
 	}
 	now := s.now()
-	return errors.Join(s.triggerDue(ctx, now), s.expireSuppressions(ctx, now))
+	return errors.Join(s.triggerDue(ctx, now), s.triggerPolls(ctx, now), s.expireSuppressions(ctx, now))
 }
 
 func (s *Scheduler) triggerDue(ctx context.Context, now time.Time) error {
@@ -125,26 +125,42 @@ func (s *Scheduler) triggerDue(ctx context.Context, now time.Time) error {
 	}
 	var errs []error
 	for _, t := range due {
-		if err := s.trigger(ctx, t, now); err != nil {
+		if err := s.trigger(ctx, t, model.TriggerSchedule, now); err != nil {
 			errs = append(errs, fmt.Errorf("target %d: %w", t.ID, err))
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// trigger queues a scan of t and moves its next run forward. If enqueueing
-// fails, next_run_at is left alone so the next tick retries: CreateJob then
-// returns the same queued job and Enqueue is idempotent by job ID.
-func (s *Scheduler) trigger(ctx context.Context, t model.TargetSpec, now time.Time) error {
+// triggerPolls queues "rescan what moved" jobs for targets whose poll is due.
+func (s *Scheduler) triggerPolls(ctx context.Context, now time.Time) error {
+	due, err := s.d.Catalog.DuePolls(ctx, now)
+	if err != nil {
+		return fmt.Errorf("due polls: %w", err)
+	}
+	var errs []error
+	for _, t := range due {
+		if err := s.trigger(ctx, t, model.TriggerPoll, now); err != nil {
+			errs = append(errs, fmt.Errorf("target %d poll: %w", t.ID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// trigger queues a scan of t and moves its next run (or poll) forward. If
+// enqueueing fails, the next time is left alone so the next tick retries:
+// CreateJob then returns the same queued job and Enqueue is idempotent by job ID.
+// A queued job of the same target is reused, whatever its trigger.
+func (s *Scheduler) trigger(ctx context.Context, t model.TargetSpec, trig model.JobTrigger, now time.Time) error {
 	id := t.ID
-	j := &model.Job{TargetID: &id, Trigger: model.TriggerSchedule, RequestedBy: schedulerActor}
+	j := &model.Job{TargetID: &id, Trigger: trig, RequestedBy: schedulerActor}
 	created, err := s.d.Catalog.CreateJob(ctx, j)
 	if err != nil {
 		return fmt.Errorf("create job: %w", err)
 	}
 	if created {
 		s.audit(ctx, &model.AuditEntry{Actor: schedulerActor, Action: "job.trigger", ObjectType: "job",
-			ObjectID: fmt.Sprint(j.ID), Details: map[string]any{"target_id": t.ID, "trigger": string(model.TriggerSchedule)}})
+			ObjectID: fmt.Sprint(j.ID), Details: map[string]any{"target_id": t.ID, "trigger": string(trig)}})
 	}
 	if err := s.d.Jobs.Enqueue(ctx, j.ID); err != nil {
 		return fmt.Errorf("enqueue job %d: %w", j.ID, err)
@@ -158,11 +174,19 @@ func (s *Scheduler) trigger(ctx context.Context, t model.TargetSpec, now time.Ti
 	if err != nil {
 		return err
 	}
-	next, err := NextRun(cur.Schedule, now)
-	if err != nil {
-		s.logger().Warn("invalid target schedule: no further scheduled runs", "target_id", t.ID, "err", err)
+	expr := cur.Schedule
+	if trig == model.TriggerPoll {
+		expr = cur.Poll
 	}
-	cur.NextRunAt = next
+	next, err := NextRun(expr, now)
+	if err != nil {
+		s.logger().Warn("invalid target schedule: no further runs", "target_id", t.ID, "trigger", trig, "err", err)
+	}
+	if trig == model.TriggerPoll {
+		cur.NextPollAt = next
+	} else {
+		cur.NextRunAt = next
+	}
 	if err := s.d.Catalog.SaveTarget(ctx, cur); err != nil {
 		return fmt.Errorf("save next run: %w", err)
 	}

@@ -1,7 +1,7 @@
 # Heimdall
 
 Heimdall watches every repository in your GitHub orgs, users or listed repos,
-reads dependency manifests on the default (or configured) branch, checks them
+reads dependency manifests on the default (or configured) branch and any extra branches (`branches: ["release/*"]`), checks them
 and the declared language runtimes against vulnerability and end-of-life data,
 and tells you what to upgrade, through reports, Slack and an MCP server for AI agents.
 

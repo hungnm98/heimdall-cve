@@ -287,6 +287,26 @@ func (s *Store) DueTargets(_ context.Context, now time.Time) ([]model.TargetSpec
 	return out, nil
 }
 
+func (s *Store) DuePolls(_ context.Context, now time.Time) ([]model.TargetSpec, error) {
+	c := &s.cat
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.init()
+	var out []model.TargetSpec
+	for _, t := range c.targets {
+		if t.Enabled && t.NextPollAt != nil && !t.NextPollAt.After(now) {
+			out = append(out, cloneTarget(t))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].NextPollAt.Equal(*out[j].NextPollAt) {
+			return out[i].NextPollAt.Before(*out[j].NextPollAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
 // ---- repos ----
 
 func (s *Store) UpsertRepos(_ context.Context, targetID int64, repos []model.Repo, at time.Time) error {
@@ -574,12 +594,17 @@ func cloneProfile(p model.AuthProfile) model.AuthProfile {
 
 func cloneTarget(t model.TargetSpec) model.TargetSpec {
 	t.Repos = append([]string(nil), t.Repos...)
+	t.Branches = append([]string(nil), t.Branches...)
 	t.Filter.Include = append([]string(nil), t.Filter.Include...)
 	t.Filter.Exclude = append([]string(nil), t.Filter.Exclude...)
 	t.Filter.Topics = append([]string(nil), t.Filter.Topics...)
 	if t.NextRunAt != nil {
 		n := *t.NextRunAt
 		t.NextRunAt = &n
+	}
+	if t.NextPollAt != nil {
+		n := *t.NextPollAt
+		t.NextPollAt = &n
 	}
 	return t
 }

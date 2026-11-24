@@ -128,7 +128,7 @@ func (s *intelSvc) AnalysisQueue(ctx context.Context, limit int, staleAfter time
 	}
 	type sevCount map[model.Severity]int
 	findings := map[key]sevCount{}
-	err = eachFinding(ctx, s.d.Store, store.FindingFilter{Status: model.StatusOpen, Kind: model.KindDependency}, func(f model.Finding) {
+	err = eachFinding(ctx, s.d.Store, store.FindingFilter{Status: model.StatusOpen, Kind: model.KindDependency, DefaultBranchOnly: true}, func(f model.Finding) {
 		k := key{f.Package.Ecosystem, f.Package.Name}
 		if !inUse[k] {
 			return

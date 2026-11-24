@@ -28,6 +28,18 @@ func nextRunFor(schedule string, enabled bool, now time.Time) (*time.Time, error
 	return NextRun(schedule, now)
 }
 
+// scheduleTarget sets the next scheduled scan and the next poll of t.
+func scheduleTarget(t *model.TargetSpec, now time.Time) error {
+	var err error
+	if t.NextRunAt, err = nextRunFor(t.Schedule, t.Enabled, now); err != nil {
+		return invalid("schedule", err.Error())
+	}
+	if t.NextPollAt, err = nextRunFor(t.Poll, t.Enabled, now); err != nil {
+		return invalid("poll", err.Error())
+	}
+	return nil
+}
+
 type targetsSvc struct{ *base }
 
 func (s *targetsSvc) List(ctx context.Context) ([]model.TargetSpec, error) {
@@ -43,9 +55,9 @@ func (s *targetsSvc) Create(ctx context.Context, actor Actor, in TargetInput) (*
 	if err != nil {
 		return nil, err
 	}
-	spec := &model.TargetSpec{Target: t, Schedule: in.Schedule, Enabled: in.Enabled, Origin: model.OriginUI}
-	if spec.NextRunAt, err = nextRunFor(in.Schedule, in.Enabled, s.now()); err != nil {
-		return nil, invalid("schedule", err.Error())
+	spec := &model.TargetSpec{Target: t, Schedule: in.Schedule, Poll: in.Poll, Enabled: in.Enabled, Origin: model.OriginUI}
+	if err := scheduleTarget(spec, s.now()); err != nil {
+		return nil, err
 	}
 	if err := s.d.Catalog.SaveTarget(ctx, spec); err != nil {
 		return nil, err
@@ -66,9 +78,9 @@ func (s *targetsSvc) Update(ctx context.Context, actor Actor, id int64, in Targe
 	if err != nil {
 		return nil, err
 	}
-	spec.Target, spec.Schedule, spec.Enabled = t, in.Schedule, in.Enabled
-	if spec.NextRunAt, err = nextRunFor(in.Schedule, in.Enabled, s.now()); err != nil {
-		return nil, invalid("schedule", err.Error())
+	spec.Target, spec.Schedule, spec.Poll, spec.Enabled = t, in.Schedule, in.Poll, in.Enabled
+	if err := scheduleTarget(spec, s.now()); err != nil {
+		return nil, err
 	}
 	if err := s.d.Catalog.SaveTarget(ctx, spec); err != nil {
 		return nil, err
@@ -115,14 +127,20 @@ func (s *targetsSvc) Preview(ctx context.Context, in TargetInput) ([]model.Repo,
 func (s *targetsSvc) validate(ctx context.Context, in TargetInput) (model.Target, error) {
 	fe := fieldErrors{}
 	t := model.Target{
-		Kind:     in.Kind,
-		Provider: strings.TrimSpace(in.Provider),
-		BaseURL:  strings.TrimSpace(in.BaseURL),
-		Branch:   strings.TrimSpace(in.Branch),
-		Auth:     strings.TrimSpace(in.Auth),
-		ListAuth: strings.TrimSpace(in.ListAuth),
-		Repos:    in.Repos,
-		Filter:   in.Filter,
+		Kind:        in.Kind,
+		Provider:    strings.TrimSpace(in.Provider),
+		BaseURL:     strings.TrimSpace(in.BaseURL),
+		Branch:      strings.TrimSpace(in.Branch),
+		Auth:        strings.TrimSpace(in.Auth),
+		ListAuth:    strings.TrimSpace(in.ListAuth),
+		Repos:       in.Repos,
+		Filter:      in.Filter,
+		MaxBranches: in.MaxBranches,
+	}
+	for _, b := range in.Branches {
+		if b = strings.TrimSpace(b); b != "" {
+			t.Branches = append(t.Branches, b)
+		}
 	}
 	if t.Provider == "" {
 		t.Provider = "github"
@@ -154,6 +172,19 @@ func (s *targetsSvc) validate(ctx context.Context, in TargetInput) (model.Target
 	for _, g := range append(append([]string{}, t.Filter.Include...), t.Filter.Exclude...) {
 		if _, err := path.Match(g, ""); err != nil {
 			fe.add("filter", "invalid glob "+g)
+		}
+	}
+	for _, g := range t.Branches {
+		if _, err := path.Match(g, ""); err != nil {
+			fe.add("branches", "invalid glob "+g)
+		}
+	}
+	if t.MaxBranches < 0 {
+		fe.add("max_branches", "must be >= 0")
+	}
+	if in.Poll != "" {
+		if _, err := cron.ParseStandard(in.Poll); err != nil {
+			fe.add("poll", "invalid cron expression: "+err.Error())
 		}
 	}
 	if t.Filter.MaxRepos < 0 {
@@ -195,6 +226,7 @@ func (s *targetsSvc) validate(ctx context.Context, in TargetInput) (model.Target
 func targetDetails(t *model.TargetSpec) map[string]any {
 	return map[string]any{
 		"label": t.String(), "provider": t.Provider, "auth": t.Auth, "list_auth": t.ListAuth,
-		"branch": t.Branch, "schedule": t.Schedule, "enabled": t.Enabled,
+		"branch": t.Branch, "branches": t.Branches, "max_branches": t.MaxBranches,
+		"schedule": t.Schedule, "poll": t.Poll, "enabled": t.Enabled,
 	}
 }

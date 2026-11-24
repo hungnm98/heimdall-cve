@@ -36,6 +36,8 @@ func Run(t *testing.T, newStore func(t *testing.T) store.Store) {
 	t.Run("DuplicateAndSuppressed", func(t *testing.T) { testDuplicateAndSuppressed(t, open(t)) })
 	t.Run("ListFindingsFilter", func(t *testing.T) { testFilter(t, open(t)) })
 	t.Run("RepoState", func(t *testing.T) { testRepoState(t, open(t)) })
+	t.Run("Branches", func(t *testing.T) { testBranches(t, open(t)) })
+	t.Run("Snapshots", func(t *testing.T) { testSnapshots(t, open(t)) })
 	t.Run("MarkNotified", func(t *testing.T) { testMarkNotified(t, open(t)) })
 }
 
@@ -328,5 +330,85 @@ func testMarkNotified(t *testing.T, s store.Store) {
 	wg.Wait()
 	if firsts.Load() != 1 {
 		t.Fatalf("MarkNotified returned true %d times, want exactly 1", firsts.Load())
+	}
+}
+
+// onBranch returns f on an extra branch (its ID recomputed).
+func onBranch(f model.Finding, branch string) model.Finding {
+	f.Branch = branch
+	f.ComputeID()
+	return f
+}
+
+func testBranches(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	main := F("acme/api", "golang.org/x/net", "0.1.0", "GO-2024-0001", model.SeverityHigh)
+	dev := onBranch(main, "develop")
+	rel := onBranch(main, "release/1")
+	if main.ID == dev.ID || dev.ID == rel.ID {
+		t.Fatal("a branch must change the finding ID")
+	}
+	base := main
+	base.Branch = ""
+	if base.ComputeID() != main.ID {
+		t.Fatal("primary-branch IDs must not depend on branches")
+	}
+	_, d := record(t, s, []string{"acme/api", "acme/api@develop", "acme/api@release/1"}, t0, main, dev, rel)
+	wantIDs(t, "new", d.New, main, dev, rel)
+
+	// Scanning only develop (fixed there) leaves the other branches alone.
+	_, d = record(t, s, []string{"acme/api@develop"}, t0.Add(time.Hour))
+	wantIDs(t, "fixed on develop", d.Fixed, dev)
+
+	got, err := s.ListFindings(ctx, store.FindingFilter{Status: model.StatusOpen, DefaultBranchOnly: true})
+	must(t, err)
+	wantIDs(t, "primary only", got, main)
+	got, err = s.ListFindings(ctx, store.FindingFilter{Status: model.StatusOpen, Branch: "release/1"})
+	must(t, err)
+	wantIDs(t, "release/1", got, rel)
+
+	gone, err := s.MarkBranchesRemoved(ctx, "acme/api", []string{"develop"})
+	must(t, err)
+	wantIDs(t, "removed", gone, rel)
+	if f, _ := s.GetFinding(ctx, rel.ID); f.Status != model.StatusRemoved {
+		t.Fatalf("status = %s, want removed", f.Status)
+	}
+	if f, _ := s.GetFinding(ctx, main.ID); f.Status != model.StatusOpen {
+		t.Fatal("the primary branch is never removed")
+	}
+	// The branch comes back: its finding reopens as new.
+	_, d = record(t, s, []string{"acme/api@release/1"}, t0.Add(2*time.Hour), rel)
+	wantIDs(t, "reopened", d.New, rel)
+
+	must(t, s.PutRepoState(ctx, model.RepoState{Repo: "acme/api", Ref: "main", HeadSHA: "a", ScannedAt: t0}))
+	must(t, s.PutRepoState(ctx, model.RepoState{Repo: "acme/api", Ref: "develop", HeadSHA: "b", ScannedAt: t0}))
+	must(t, s.PutRepoState(ctx, model.RepoState{Repo: "acme/other", Ref: "main", HeadSHA: "c", ScannedAt: t0}))
+	states, err := s.ListRepoStates(ctx, "acme/api")
+	must(t, err)
+	if len(states) != 2 || states[0].Ref != "develop" || states[1].Ref != "main" || states[1].HeadSHA != "a" {
+		t.Fatalf("ListRepoStates = %+v", states)
+	}
+}
+
+func testSnapshots(t *testing.T, s store.Store) {
+	ss, ok := s.(store.Snapshots)
+	if !ok {
+		t.Skip("store does not cache commit snapshots")
+	}
+	ctx := context.Background()
+	if _, err := ss.GetSnapshot(ctx, "acme/api", "sha1", "fp", t0); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("miss: %v", err)
+	}
+	must(t, ss.PutSnapshot(ctx, "acme/api", "sha1", "fp", []byte("one"), t0, t0.Add(-time.Hour)))
+	if b, err := ss.GetSnapshot(ctx, "acme/api", "sha1", "fp", t0.Add(time.Hour)); err != nil || string(b) != "one" {
+		t.Fatalf("hit: %q %v", b, err)
+	}
+	if _, err := ss.GetSnapshot(ctx, "acme/api", "sha1", "other-fp", t0); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("a different fingerprint must miss")
+	}
+	// sha1 was used at t0+1h; pruning before t0+2h removes it.
+	must(t, ss.PutSnapshot(ctx, "acme/api", "sha2", "fp", []byte("two"), t0.Add(3*time.Hour), t0.Add(2*time.Hour)))
+	if _, err := ss.GetSnapshot(ctx, "acme/api", "sha1", "fp", t0); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("unused snapshots must be pruned")
 	}
 }

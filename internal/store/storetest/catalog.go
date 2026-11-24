@@ -3,6 +3,7 @@ package storetest
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -222,6 +223,19 @@ func testTargets(t *testing.T, c store.Catalog) {
 	if len(due) != 2 || due[0].ID != b.ID || due[1].ID != a.ID {
 		t.Fatalf("DueTargets = %v, want [b a] (enabled, due, oldest first)", targetIDs(due))
 	}
+	polled := target("polled", "pat")
+	polled.Branches, polled.MaxBranches, polled.Poll, polled.NextPollAt = []string{"release/*", "develop"}, 3, "@every 1h", &past1
+	must(t, c.SaveTarget(ctx, polled))
+	if got, _ := c.GetTarget(ctx, polled.ID); strings.Join(got.Branches, ",") != "release/*,develop" || got.MaxBranches != 3 ||
+		got.Poll != "@every 1h" || got.NextPollAt == nil || !got.NextPollAt.Equal(past1) {
+		t.Fatalf("branches/poll lost: %+v", got)
+	}
+	polls, err := c.DuePolls(ctx, now)
+	must(t, err)
+	if len(polls) != 1 || polls[0].ID != polled.ID {
+		t.Fatalf("DuePolls = %v, want [polled]", targetIDs(polls))
+	}
+	must(t, c.DeleteTarget(ctx, polled.ID))
 	enabled := true
 	if l, _ := c.ListTargets(ctx, store.TargetFilter{Enabled: &enabled}); len(l) != 4 {
 		t.Fatalf("enabled targets = %d, want 4", len(l))

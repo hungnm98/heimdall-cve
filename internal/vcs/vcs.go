@@ -36,6 +36,12 @@ type Provider interface {
 	Checkout(ctx context.Context, r model.Repo, sha, dir string) error
 }
 
+// BranchLister is an optional Provider capability: listing a repo's branch
+// names (needed for branch globs such as "release/*").
+type BranchLister interface {
+	ListBranches(ctx context.Context, r model.Repo) ([]string, error)
+}
+
 // Credentials passed to a provider factory.
 type Credentials struct {
 	Read auth.Credentials // used to read code (token, app or ssh)

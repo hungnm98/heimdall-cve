@@ -210,7 +210,7 @@ func (h *handler) listRepos(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) getRepo(w http.ResponseWriter, r *http.Request) {
-	d, err := h.s.Repos.Get(r.Context(), r.PathValue("owner")+"/"+r.PathValue("name"))
+	d, err := h.s.Repos.Get(r.Context(), r.PathValue("owner")+"/"+r.PathValue("name"), r.URL.Query().Get("branch"))
 	if err != nil {
 		h.writeError(w, r, err)
 		return
@@ -225,6 +225,7 @@ func (h *handler) listFindings(w http.ResponseWriter, r *http.Request) {
 	f := store.FindingFilter{
 		Repo: q.str("repo"), Kind: model.FindingKind(q.str("kind")), Status: model.FindingStatus(q.str("status")),
 		InKEV: q.bool("kev"), NewSince: q.time("new_since"), Query: strings.TrimSpace(q.str("q")),
+		Branch: q.str("branch"), DefaultBranchOnly: q.bool("primary_branch"),
 		After: q.str("cursor"), Limit: q.limit(),
 	}
 	if v := q.str("min_severity"); v != "" {
@@ -237,8 +238,11 @@ func (h *handler) listFindings(w http.ResponseWriter, r *http.Request) {
 	if !oneOf(string(f.Kind), "dependency", "runtime", "code", "secret", "config") {
 		q.fields["kind"] = "unknown finding kind"
 	}
-	if !oneOf(string(f.Status), "open", "fixed", "suppressed") {
-		q.fields["status"] = "must be open, fixed or suppressed"
+	if !oneOf(string(f.Status), "open", "fixed", "suppressed", "removed") {
+		q.fields["status"] = "must be open, fixed, suppressed or removed"
+	}
+	if f.Branch != "" && f.DefaultBranchOnly {
+		q.fields["branch"] = "branch and primary_branch are exclusive"
 	}
 	if !q.ok(w) {
 		return

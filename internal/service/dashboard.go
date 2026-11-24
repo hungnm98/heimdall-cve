@@ -27,7 +27,7 @@ func (s *dashboardSvc) Summary(ctx context.Context, trendRuns int) (*DashboardSu
 	for _, sev := range []model.Severity{model.SeverityCritical, model.SeverityHigh, model.SeverityMedium, model.SeverityLow, model.SeverityUnknown} {
 		sum.OpenBySeverity[sev] = 0
 	}
-	err := eachFinding(ctx, s.d.Store, store.FindingFilter{Status: model.StatusOpen}, func(f model.Finding) {
+	err := eachFinding(ctx, s.d.Store, store.FindingFilter{Status: model.StatusOpen, DefaultBranchOnly: true}, func(f model.Finding) {
 		sev := f.Severity
 		if sev == "" {
 			sev = model.SeverityUnknown

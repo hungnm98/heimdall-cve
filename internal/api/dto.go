@@ -76,7 +76,11 @@ type targetInputDTO struct {
 	Repos    []string       `json:"repos,omitempty"`
 	Filter   *repoFilterDTO `json:"filter,omitempty"`
 	Schedule string         `json:"schedule"`
-	Enabled  *bool          `json:"enabled,omitempty"`
+	// Branches are extra branches (names or globs) scanned besides Branch.
+	Branches    []string `json:"branches,omitempty"`
+	MaxBranches int      `json:"max_branches,omitempty"`
+	Poll        string   `json:"poll,omitempty"`
+	Enabled     *bool    `json:"enabled,omitempty"`
 }
 
 func orTrue(b *bool) bool { return b == nil || *b }
@@ -86,6 +90,7 @@ func (in targetInputDTO) toService() service.TargetInput {
 		Kind: model.TargetKind(in.Kind), Provider: in.Provider, BaseURL: in.BaseURL, Owner: in.Owner,
 		URL: in.URL, Branch: in.Branch, Auth: in.Auth, ListAuth: in.ListAuth, Repos: in.Repos,
 		Schedule: strings.TrimSpace(in.Schedule), Enabled: orTrue(in.Enabled),
+		Branches: in.Branches, MaxBranches: in.MaxBranches, Poll: strings.TrimSpace(in.Poll),
 		Filter: model.RepoFilter{SkipArchived: true, SkipForks: true, SkipEmpty: true},
 	}
 	if f := in.Filter; f != nil {
@@ -99,13 +104,14 @@ func (in targetInputDTO) toService() service.TargetInput {
 
 type targetDTO struct {
 	targetInputDTO
-	ID        int64   `json:"id"`
-	Name      string  `json:"name,omitempty"`
-	Label     string  `json:"label"`
-	Origin    string  `json:"origin"`
-	NextRunAt *string `json:"next_run_at"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt string  `json:"updated_at"`
+	ID         int64   `json:"id"`
+	Name       string  `json:"name,omitempty"`
+	Label      string  `json:"label"`
+	Origin     string  `json:"origin"`
+	NextRunAt  *string `json:"next_run_at"`
+	NextPollAt *string `json:"next_poll_at,omitempty"`
+	CreatedAt  string  `json:"created_at"`
+	UpdatedAt  string  `json:"updated_at"`
 }
 
 // repoURL rebuilds a repo target's URL: the model keeps owner/name and the
@@ -128,12 +134,13 @@ func toTarget(t model.TargetSpec) targetDTO {
 		targetInputDTO: targetInputDTO{
 			Kind: string(t.Kind), Provider: t.Provider, BaseURL: t.BaseURL, Owner: t.Owner, Branch: t.Branch,
 			Auth: t.Auth, ListAuth: t.ListAuth, Repos: t.Repos, Schedule: t.Schedule, Enabled: b(t.Enabled),
+			Branches: t.Branches, MaxBranches: t.MaxBranches, Poll: t.Poll,
 			Filter: &repoFilterDTO{
 				Include: t.Filter.Include, Exclude: t.Filter.Exclude, Topics: t.Filter.Topics, MaxRepos: t.Filter.MaxRepos,
 				SkipArchived: b(t.Filter.SkipArchived), SkipForks: b(t.Filter.SkipForks), SkipEmpty: b(t.Filter.SkipEmpty),
 			},
 		},
-		ID: t.ID, Label: t.String(), Origin: string(t.Origin), NextRunAt: tsPtr(t.NextRunAt),
+		ID: t.ID, Label: t.String(), Origin: string(t.Origin), NextRunAt: tsPtr(t.NextRunAt), NextPollAt: tsPtr(t.NextPollAt),
 		CreatedAt: ts(t.CreatedAt), UpdatedAt: ts(t.UpdatedAt),
 	}
 	if t.Kind == model.TargetRepo {
@@ -282,8 +289,18 @@ type upgradeItemDTO struct {
 	Advice      string     `json:"advice,omitempty"`
 }
 
+type branchStatusDTO struct {
+	Name           string         `json:"name"`
+	Primary        bool           `json:"primary"`
+	HeadSHA        string         `json:"head_sha,omitempty"`
+	ScannedAt      *string        `json:"scanned_at,omitempty"`
+	OpenBySeverity map[string]int `json:"open_by_severity"`
+}
+
 type repoDetailDTO struct {
 	Repo        repoRecordDTO      `json:"repo"`
+	Branch      string             `json:"branch,omitempty"` // "" = primary branch
+	Branches    []branchStatusDTO  `json:"branches"`
 	Findings    []findingDTO       `json:"findings"`
 	Runtimes    []runtimeStatusDTO `json:"runtimes"`
 	UpgradePlan []upgradeItemDTO   `json:"upgrade_plan"`
@@ -292,9 +309,18 @@ type repoDetailDTO struct {
 func toRepoDetail(d *service.RepoDetail) repoDetailDTO {
 	out := repoDetailDTO{
 		Repo:        toRepoRecord(d.Record),
+		Branch:      d.Branch,
+		Branches:    make([]branchStatusDTO, 0, len(d.Branches)),
 		Findings:    list(d.Findings, "", toFinding).Items,
 		Runtimes:    list(d.Runtimes, "", toRuntime).Items,
 		UpgradePlan: make([]upgradeItemDTO, 0, len(d.UpgradePlan)),
+	}
+	for _, b := range d.Branches {
+		bd := branchStatusDTO{Name: b.Name, Primary: b.Primary, HeadSHA: b.HeadSHA, OpenBySeverity: sevCounts(b.OpenBySeverity)}
+		if !b.ScannedAt.IsZero() {
+			bd.ScannedAt = tsPtr(&b.ScannedAt)
+		}
+		out.Branches = append(out.Branches, bd)
 	}
 	for _, u := range d.UpgradePlan {
 		out.UpgradePlan = append(out.UpgradePlan, upgradeItemDTO{
@@ -318,6 +344,7 @@ type findingDTO struct {
 	ID                 string            `json:"id"`
 	Kind               string            `json:"kind"`
 	Repo               string            `json:"repo"`
+	Branch             string            `json:"branch,omitempty"` // "" = primary branch
 	ManifestPath       string            `json:"manifest_path"`
 	Package            *packageDTO       `json:"package,omitempty"`
 	Direct             bool              `json:"direct"`
@@ -349,7 +376,7 @@ type findingDTO struct {
 
 func toFinding(f model.Finding) findingDTO {
 	d := findingDTO{
-		ID: f.ID, Kind: string(f.Kind), Repo: f.Repo, ManifestPath: f.ManifestPath, Direct: f.Direct,
+		ID: f.ID, Kind: string(f.Kind), Repo: f.Repo, Branch: f.Branch, ManifestPath: f.ManifestPath, Direct: f.Direct,
 		Scope: string(f.Scope), Parents: f.Parents, AdvisoryID: f.AdvisoryID, Aliases: f.Aliases, Summary: f.Summary,
 		Severity: severity(f.Severity), CVSSVector: f.CVSSVector, CVSSScore: f.CVSSScore, EPSS: f.EPSS,
 		EPSSPercentile: f.EPSSPercentile, InKEV: f.InKEV, Malicious: f.Malicious, Verified: f.Verified,

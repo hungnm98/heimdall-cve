@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"time"
 
 	"github.com/hungnm98/heimdall-cve/internal/model"
 	"github.com/hungnm98/heimdall-cve/internal/store"
@@ -54,14 +55,27 @@ func SyncConfig(ctx context.Context, d Deps) error {
 	for _, t := range existing {
 		byKey[configTargetKey(t.Target)] = t
 	}
-	for _, t := range d.Config.ModelTargets() {
+	now := time.Now()
+	if d.Now != nil {
+		now = d.Now()
+	}
+	for i, t := range d.Config.ModelTargets() {
 		key := configTargetKey(t)
 		spec, ok := byKey[key]
 		delete(byKey, key)
 		if !ok {
 			spec = model.TargetSpec{Origin: model.OriginConfig, Enabled: true}
 		}
-		spec.Target = t
+		ct := d.Config.Targets[i]
+		changed := spec.Schedule != ct.Schedule || spec.Poll != ct.Poll
+		spec.Target, spec.Schedule, spec.Poll = t, ct.Schedule, ct.Poll
+		// Keep pending runs across restarts; reschedule when the expression changed.
+		if changed || (spec.Schedule != "" && spec.NextRunAt == nil) || (spec.Poll != "" && spec.NextPollAt == nil) {
+			if err := scheduleTarget(&spec, now); err != nil {
+				errs = append(errs, fmt.Errorf("target %s: %w", t, err))
+				continue
+			}
+		}
 		if err := d.Catalog.SaveTarget(ctx, &spec); err != nil {
 			errs = append(errs, fmt.Errorf("target %s: %w", t, err))
 		}

@@ -11,6 +11,8 @@
 | Ưu tiên | ✅ Điểm `priority` 0–100: 90–100 KEV/malicious, 70–89 EPSS ≥ 0.1, 0–69 còn lại theo CVSS/severity + EPSS; ×0.9 indirect (trừ KEV/malicious), ×0.5 dev-only | — |
 | Runtime EOL | endoflife.date (`go`) + OSV `stdlib`/`toolchain` | node, ruby |
 | Dedup | Gộp advisory theo ID + aliases; finding ID ổn định → không ghi 2 lỗi, không notify lặp | — |
+| Nhiều nhánh | ✅ `branches: ["release/*", develop]` + `max_branches`; finding nhánh phụ có `branch` (ID nhánh chính không đổi); nhánh bị xoá → finding `removed`; notify gộp 1 tin/CVE cho mọi nhánh; dashboard chỉ đếm nhánh chính | — |
+| Quét lại | ✅ `schedule` (cron, quét đầy đủ) + `poll` (chỉ quét nhánh có commit mới) trong config/UI; snapshot theo commit (Postgres) → commit không đổi thì không đọc/parse lại, vẫn đối chiếu OSV mới; `force` bỏ qua snapshot | webhook push |
 | VCS / auth | GitHub: **token**, **GitHub App**, **SSH**; GHES qua `base_url` | GitLab, Bitbucket… |
 | Target | org, user cá nhân, **1 repo URL cụ thể**, mỗi target gắn 1 **auth profile** | — |
 | Branch | default branch hoặc branch khai báo trong config | — |
