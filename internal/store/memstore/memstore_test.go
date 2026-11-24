@@ -14,3 +14,7 @@ func TestContract(t *testing.T) {
 func TestCatalogContract(t *testing.T) {
 	storetest.RunCatalog(t, func(*testing.T) store.Store { return New() })
 }
+
+func TestIntelContract(t *testing.T) {
+	storetest.RunIntel(t, func(*testing.T) store.Store { return New() })
+}
