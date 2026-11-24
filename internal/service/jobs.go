@@ -54,12 +54,13 @@ func (s *jobsSvc) Trigger(ctx context.Context, actor Actor, req JobRequest) (*mo
 		if err := fe.err(); err != nil {
 			return nil, false, err
 		}
-		j.Repo, j.AuthProfile = u.Owner+"/"+u.Name, req.AuthProfile
+		j.Repo, j.AuthProfile, j.BaseURL = u.Owner+"/"+u.Name, req.AuthProfile, apiBaseForHost(u.Host)
 	default:
 		if repo != "" {
 			return nil, false, invalid("repo", "repo needs target_id")
 		}
 	}
+	j.Force = req.Force
 	created, err := s.d.Catalog.CreateJob(ctx, j)
 	if err != nil {
 		return nil, false, err
@@ -137,4 +138,13 @@ func (s *jobsSvc) Events(ctx context.Context, id, afterID int64, limit int) ([]m
 		return nil, err
 	}
 	return s.d.Catalog.ListJobEvents(ctx, id, afterID, ClampLimit(limit))
+}
+
+// apiBaseForHost returns the REST API base URL for a repo host: "" (provider
+// default) for github.com, the GitHub Enterprise Server API path otherwise.
+func apiBaseForHost(host string) string {
+	if host == "" || strings.EqualFold(host, "github.com") {
+		return ""
+	}
+	return "https://" + host + "/api/v3"
 }

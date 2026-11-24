@@ -141,7 +141,7 @@ func TestJobHandlerScopes(t *testing.T) {
 	e := newWorkerEnv(t)
 	h := NewJobHandler(e.deps)
 	all := e.job(t, &model.Job{})
-	adhoc := e.job(t, &model.Job{Repo: "git@github.com:acme/secret-repo.git", AuthProfile: "pat", Branch: "main"})
+	adhoc := e.job(t, &model.Job{Repo: "acme/secret-repo", BaseURL: "https://ghe.example.com/api/v3", Force: true, AuthProfile: "pat", Branch: "main"})
 	for _, j := range []*model.Job{all, adhoc} {
 		if err := h.HandleScan(context.Background(), j.ID); err != nil {
 			t.Fatal(err)
@@ -157,6 +157,9 @@ func TestJobHandlerScopes(t *testing.T) {
 	want := model.Target{Kind: model.TargetRepo, Provider: "github", Owner: "acme", Name: "secret-repo", Branch: "main", Auth: "pat", ListAuth: "pat"}
 	if got := calls[1].Targets; len(got) != 1 || fmt.Sprint(got[0]) != fmt.Sprint(want) || got[0].Branch != "main" || got[0].Auth != "pat" {
 		t.Fatalf("ad-hoc target = %+v", got)
+	}
+	if calls[1].Targets[0].BaseURL != "https://ghe.example.com/api/v3" || !calls[1].Force || calls[0].Force {
+		t.Fatalf("ad-hoc job must carry BaseURL and Force: %+v", calls[1])
 	}
 
 	bad := e.job(t, &model.Job{Repo: "not a url"})

@@ -81,6 +81,8 @@ type Job struct {
 	Repo        string
 	Branch      string
 	AuthProfile string // for ad-hoc repo jobs
+	BaseURL     string // API base URL for an ad-hoc repo on GitHub Enterprise; "" = github.com
+	Force       bool   // rescan even if HEAD and source data are unchanged
 	Trigger     JobTrigger
 	Status      JobStatus
 	RunID       *int64

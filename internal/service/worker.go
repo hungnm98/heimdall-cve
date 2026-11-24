@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -114,7 +115,7 @@ func (h *jobHandler) HandleScan(ctx context.Context, jobID int64) error {
 // request resolves the job scope: one target (optionally one repo of it), an
 // ad-hoc repo URL, or every enabled target.
 func (h *jobHandler) request(ctx context.Context, j *model.Job) (*core.ScanRequest, error) {
-	req := &core.ScanRequest{Trigger: j.Trigger, TargetIDs: map[string]int64{}}
+	req := &core.ScanRequest{Trigger: j.Trigger, TargetIDs: map[string]int64{}, Force: j.Force}
 	switch {
 	case j.TargetID != nil:
 		t, err := h.d.Catalog.GetTarget(ctx, *j.TargetID)
@@ -128,14 +129,14 @@ func (h *jobHandler) request(ctx context.Context, j *model.Job) (*core.ScanReque
 		req.Targets, req.Repo = []model.Target{tg}, j.Repo
 		req.TargetIDs[tg.String()] = t.ID
 	case j.Repo != "":
-		u, err := model.ParseRepoURL(j.Repo)
-		if err != nil {
-			return nil, fmt.Errorf("ad-hoc repo job: %w", err)
+		// Ad-hoc repo: Repo is "owner/name" (Jobs.Trigger), BaseURL the API of
+		// its host ("" = github.com).
+		owner, name, ok := strings.Cut(j.Repo, "/")
+		if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+			return nil, fmt.Errorf("ad-hoc repo job: repo %q is not owner/name", j.Repo)
 		}
-		// Like a config `kind: repo` target: the host only picks the clone
-		// URL; BaseURL stays the provider default.
 		req.Targets = []model.Target{{
-			Kind: model.TargetRepo, Provider: "github", Owner: u.Owner, Name: u.Name,
+			Kind: model.TargetRepo, Provider: "github", BaseURL: j.BaseURL, Owner: owner, Name: name,
 			Branch: j.Branch, Auth: j.AuthProfile, ListAuth: j.AuthProfile,
 		}}
 	default:

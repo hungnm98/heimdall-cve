@@ -415,12 +415,12 @@ func (s *Store) MarkRepoScanned(ctx context.Context, fullName, headSHA string, a
 
 // ---- jobs ----
 
-const jobCols = "id, target_id, repo, branch, auth_profile, trigger, status, run_id, attempts, requested_by, error, created_at, started_at, finished_at"
+const jobCols = "id, target_id, repo, branch, auth_profile, base_url, force, trigger, status, run_id, attempts, requested_by, error, created_at, started_at, finished_at"
 
 func scanJob(row pgx.Row) (*model.Job, error) {
 	var j model.Job
 	var trigger, status string
-	if err := row.Scan(&j.ID, &j.TargetID, &j.Repo, &j.Branch, &j.AuthProfile, &trigger, &status, &j.RunID, &j.Attempts,
+	if err := row.Scan(&j.ID, &j.TargetID, &j.Repo, &j.Branch, &j.AuthProfile, &j.BaseURL, &j.Force, &trigger, &status, &j.RunID, &j.Attempts,
 		&j.RequestedBy, &j.Error, &j.CreatedAt, &j.StartedAt, &j.FinishedAt); err != nil {
 		return nil, err
 	}
@@ -437,11 +437,11 @@ func (s *Store) CreateJob(ctx context.Context, j *model.Job) (bool, error) {
 		j.Status = model.JobQueued
 	}
 	for attempt := 0; attempt < 5; attempt++ {
-		err := s.pool.QueryRow(ctx, `INSERT INTO scan_jobs (target_id, repo, branch, auth_profile, trigger, status, run_id,
-			attempts, requested_by, error, started_at, finished_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT DO NOTHING RETURNING id, created_at`,
-			j.TargetID, j.Repo, j.Branch, j.AuthProfile, string(j.Trigger), string(j.Status), j.RunID, j.Attempts,
-			j.RequestedBy, j.Error, j.StartedAt, j.FinishedAt).Scan(&j.ID, &j.CreatedAt)
+		err := s.pool.QueryRow(ctx, `INSERT INTO scan_jobs (target_id, repo, branch, auth_profile, base_url, force, trigger,
+			status, run_id, attempts, requested_by, error, started_at, finished_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) ON CONFLICT DO NOTHING RETURNING id, created_at`,
+			j.TargetID, j.Repo, j.Branch, j.AuthProfile, j.BaseURL, j.Force, string(j.Trigger), string(j.Status), j.RunID,
+			j.Attempts, j.RequestedBy, j.Error, j.StartedAt, j.FinishedAt).Scan(&j.ID, &j.CreatedAt)
 		switch {
 		case err == nil:
 			return true, nil

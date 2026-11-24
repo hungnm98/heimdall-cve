@@ -312,7 +312,8 @@ func testJobs(t *testing.T, c store.Catalog) {
 	if created || dup.ID != j1.ID || dup.RequestedBy != "alice" {
 		t.Fatalf("an active job with the same scope must be returned instead: created=%v %+v", created, dup)
 	}
-	repoJob := &model.Job{TargetID: &tg.ID, Repo: "acme/api", Trigger: model.TriggerManual}
+	repoJob := &model.Job{TargetID: &tg.ID, Repo: "acme/api", Trigger: model.TriggerManual,
+		BaseURL: "https://ghe.example.com/api/v3", Force: true}
 	all := &model.Job{Trigger: model.TriggerManual}
 	for _, j := range []*model.Job{repoJob, all} {
 		created, err := c.CreateJob(ctx, j)
@@ -320,6 +321,9 @@ func testJobs(t *testing.T, c store.Catalog) {
 		if !created {
 			t.Fatalf("different scope must create a new job: %+v", j)
 		}
+	}
+	if got, _ := c.GetJob(ctx, repoJob.ID); got == nil || got.BaseURL != "https://ghe.example.com/api/v3" || !got.Force {
+		t.Fatalf("BaseURL/Force not stored: %+v", got)
 	}
 	if created, _ := c.CreateJob(ctx, &model.Job{Trigger: model.TriggerAPI}); created {
 		t.Fatal("a second all-targets job must be deduplicated")
