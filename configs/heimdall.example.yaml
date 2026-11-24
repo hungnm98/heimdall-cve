@@ -95,6 +95,7 @@ jobs:
 server:
   listen: 127.0.0.1:8080
   # trusted_user_header: X-Forwarded-Email   # set by the SSO proxy, recorded in the audit log
+  # public_url: https://heimdall.internal     # links from Slack messages to the UI
 
 # Master key (base64, 32 bytes) that encrypts secrets entered in the web UI.
 # Without it the UI cannot store secrets; env/file auth profiles still work.

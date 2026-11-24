@@ -128,7 +128,7 @@ cmd/heimdall ──► internal/app (wiring) ──► internal/core (pipeline, 
 | **E2. Postgres catalog + asynq + scheduler** | `internal/store/postgres` (Catalog), `internal/jobs/asynq`, `internal/service/scheduler*.go`, lệnh `worker` | Catalog trên Postgres (migration 0002), asynq backend trên Valkey, scheduler (cron, lock Valkey, hết hạn suppress), encrypted secret resolver | `storetest.RunCatalog` trên Postgres thật, `jobstest.Run` trên Valkey thật |
 | **F. Web UI** | `web/` | React + TS (Vite, TanStack Query/Router/Table, shadcn/ui + Tailwind, Recharts), types sinh từ OpenAPI, mock bằng MSW; 9 trang theo WEBAPP.md §7 | `npm run build` ra `web/dist`; Vitest + Playwright trên mock |
 
-**Phase 2 — Integration (1 agent):** `internal/core` pipeline (implement `core.Scanner`) nối A–F (worker gọi pipeline, UI chạy trên API thật), `heimdall scan`, exit code `--fail-on`, e2e test với fixture repo + một lần chạy thật read-only lên org remitano.
+**Phase 2 — Integration (✅ xong):** `core.Pipeline` (implement `core.Scanner`) nối A–F; worker + scheduler chạy trong `serve` (hoặc `heimdall worker`); lệnh `scan` (exit code `--fail-on`) và `repos`; notify theo diff (idempotent); report ghi ra `report.dir`; secret store nối vào plugin; `Job.Force/BaseURL`; test e2e với plugin thật trên upstream giả. Còn lại: chạy thật read-only lên org remitano (cần token do Đại ca cấp), query đếm gom nhóm cho dashboard, field `Runtimes` cho notification, `UpdateJob` có điều kiện, retention cho `job_events`/`audit_log`, các spec gap UI ghi nhận.
 
 **Phase 3 — MCP + AI agent (1 agent):** xem §6.
 
