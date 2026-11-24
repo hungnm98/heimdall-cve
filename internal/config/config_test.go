@@ -116,3 +116,28 @@ func TestUnknownTopLevelKey(t *testing.T) {
 		t.Fatalf("typo must fail, got %v", err)
 	}
 }
+
+func TestEmptyPluginBlocksAndDefaultSources(t *testing.T) {
+	base := "auth_profiles: { pat: { type: token, token_env: T } }\ntargets: [ { kind: org, name: acme, auth: pat } ]\n"
+	c, err := Load(write(t, "a.yaml", base+"sources: { osv: {}, endoflife: {} }\nnotify: { slack-webhook: {} }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.Sources["osv"]; !ok || len(c.Sources) != 2 || len(c.Notify) != 1 {
+		t.Fatalf("empty blocks must enable their plugin: sources=%v notify=%v", c.Sources, c.Notify)
+	}
+	c, err = Load(write(t, "b.yaml", base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Sources) != len(DefaultSources) || !c.Sources["osv"].IsEnabled() {
+		t.Fatalf("no sources section must enable the defaults, got %v", c.Sources)
+	}
+	c, err = Load(write(t, "c.yaml", base+"sources: { osv: { enabled: false } }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Sources) != 1 || c.Sources["osv"].IsEnabled() {
+		t.Fatalf("an explicit sources section replaces the defaults, got %v", c.Sources)
+	}
+}

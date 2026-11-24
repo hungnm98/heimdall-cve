@@ -182,6 +182,7 @@ func Load(file string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", v.ConfigFileUsed(), err)
 	}
+	keepEmptyBlocks(v, &c)
 	c.Cache.Dir = secret.ExpandHome(c.Cache.Dir)
 	c.Workspace.Dir = secret.ExpandHome(c.Workspace.Dir)
 	if err := c.Validate(); err != nil {
@@ -348,4 +349,37 @@ func keys(m plugin.Config) string {
 func Exists(p string) bool {
 	_, err := os.Stat(secret.ExpandHome(p))
 	return err == nil
+}
+
+// DefaultSources are enabled when the config file has no `sources` section:
+// a scanner with no vulnerability source would silently find nothing.
+var DefaultSources = []string{"osv", "endoflife"}
+
+// keepEmptyBlocks restores plugin blocks written as `name: {}`: viper drops
+// keys whose value is an empty map, which silently disabled such plugins
+// (e.g. `sources: { osv: {} }` ran no source at all).
+func keepEmptyBlocks(v *viper.Viper, c *Config) {
+	restore := func(key string, m *map[string]Plugin) {
+		raw, ok := v.Get(key).(map[string]any)
+		if !ok {
+			return
+		}
+		for name := range raw {
+			if *m == nil {
+				*m = map[string]Plugin{}
+			}
+			if _, ok := (*m)[name]; !ok {
+				(*m)[name] = Plugin{}
+			}
+		}
+	}
+	restore("sources", &c.Sources)
+	restore("notify", &c.Notify)
+	restore("auth_profiles", &c.AuthProfiles)
+	if !v.InConfig("sources") {
+		c.Sources = map[string]Plugin{}
+		for _, name := range DefaultSources {
+			c.Sources[name] = Plugin{}
+		}
+	}
 }

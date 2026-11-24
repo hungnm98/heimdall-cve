@@ -98,6 +98,9 @@ func (p *Pipeline) Scan(ctx context.Context, req ScanRequest, prog Progress) (*m
 }
 
 func (p *Pipeline) scan(ctx context.Context, req ScanRequest, prog Progress, run *model.ScanRun) error {
+	if len(p.VulnSources) == 0 {
+		prog.Event("warn", "", "no vulnerability source is enabled: dependencies will not be checked (enable sources.osv)")
+	}
 	repos := p.resolve(ctx, req, prog, run)
 	if err := ctx.Err(); err != nil {
 		return err
