@@ -9,3 +9,4 @@ heimdall.json
 /.claude/
 # built UI copied by `make web`; only the placeholder index.html is committed
 /internal/webui/dist/assets/
+/.local/
